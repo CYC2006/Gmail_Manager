@@ -1,0 +1,21 @@
+# =========================
+# Credentials
+# =========================
+credentials.json
+token.json
+
+# =========================
+# Python virtual environment and cache
+# =========================
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================
+# editor and os system settings
+# =========================
+.vscode/
+.DS_Store
