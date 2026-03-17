@@ -4,6 +4,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+# import other source code
+from email_parser import get_email_body
+
 # If modifying these scopes, delete the file token.json.
 # This scope only allows reading messages, which is safe for testing.
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -51,10 +54,10 @@ def main():
             msg = service.users().messages().get(
                 userId="me", 
                 id=message["id"], 
-                format="metadata", 
-                metadataHeaders=["From", "Subject"]
+                format="full"
             ).execute()
             
+            payload = msg.get("payload", {})
             headers = msg.get("payload", {}).get("headers", [])
             sender = "Unknown Sender"
             subject = "No Subject"
@@ -68,7 +71,14 @@ def main():
                     
             print(f"From:    {sender}")
             print(f"Subject: {subject}")
+
+            # 使用我們模組化的函式來萃取內文
+            email_body = get_email_body(payload)
+            
+            # 只印出前 100 個字元來預覽，避免終端機被洗版
+            print(f"Content:\n{email_body[:100]}...") 
             print("-" * 50)
+
 
     except Exception as error:
         print(f"An error occurred: {error}")
