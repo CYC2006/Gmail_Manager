@@ -21,7 +21,7 @@ def route_email(sender, subject):
     sender_lower = sender.lower()
     
     if "moodle" in sender_lower:
-        return "📚 Moodle 通知", False
+        return "📚 Moodle 通知", True
     elif "消費合作社" in sender:
         return "🗑️ 合作社廣告", False
     elif "coursera" in sender_lower:
@@ -114,20 +114,29 @@ def main():
                 print(f"🏷️ 最終分類: {cached_result.get('category')}")
                 print(f"📌 摘要: {cached_result.get('summary')}")
             else:
-                # 取得乾淨內文
                 email_body = get_email_body(payload)
                 
-                # 如果需要 AI 分析，且內文有實質內容，就交給 Gemini
+                # check whether the mail needs to be analyzed by AI
                 if needs_ai and len(email_body) > 20:
                     print("🧠 AI 分析與分類中...")
-                    ai_result = analyze_email_content(email_body, sender, receive_time)
+                    
+                    # 🌟 這裡就是我們新增的 Moodle 判斷邏輯
+                    is_moodle_mail = (initial_tag == "📚 Moodle 通知")
+                    
+                    # 呼叫 AI 時，把 is_moodle 的狀態傳進去
+                    ai_result = analyze_email_content(
+                        email_body, 
+                        sender, 
+                        receive_time, 
+                        is_moodle=is_moodle_mail
+                    )
                     
                     print(f"🏷️ 最終分類: {ai_result.get('category')}")
                     print(f"📌 摘要: {ai_result.get('summary')}")
                     if ai_result.get('event_time'):
                         print(f"⏰ 關鍵時間: {ai_result.get('event_time')}")
                     
-                    # 🛡️ 新增防呆機制：只有當分類不是失敗時，才存入資料庫
+                    # 🛡️ 防呆機制：只有當分類不是失敗時，才存入資料庫
                     if ai_result.get('category') != "⚠️ Analysis Failed":
                         save_analysis(email_id, ai_result)
                     else:
