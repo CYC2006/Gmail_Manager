@@ -9,40 +9,36 @@ from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_content
 from src.db_manager import init_db, get_cached_result, save_analysis
 
-# If modifying these scopes, delete the file token.json.
-# This scope only allows reading messages, which is safe for testing.
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-
+# Upgraded scope for modifying email states (read, archive, trash, star)
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 def route_email(sender, subject):
     """
-    根據寄件人，決定這封信的處理路徑與初步標籤
+    Route email based on sender and subject to determine AI analysis necessity.
     """
     sender_lower = sender.lower()
     
     if "moodle" in sender_lower:
-        return "📚 Moodle 通知", True
+        return "📚 Moodle 通知", True  
     elif "消費合作社" in sender:
         return "🗑️ 合作社廣告", False
     elif "coursera" in sender_lower:
         return "💻 外部學習", False
         
-    # 只要是包含 ncku.edu.tw 的學校信件，但不在上述規則內
     elif "ncku.edu.tw" in sender_lower or "處" in sender or "中心" in sender or "館" in sender:
         return "🔄 等待 AI 分類", True
         
     else:
         return "✉️ 一般信件", True
 
-
-def main():
+def get_gmail_service():
+    """
+    Handle OAuth2 authentication and return the Gmail API service instance.
+    """
     creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first time.
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
         
-    # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -50,19 +46,24 @@ def main():
             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
             creds = flow.run_local_server(port=0)
             
-        # Save the credentials for the next run
         with open("token.json", "w") as token:
             token.write(creds.to_json())
 
     try:
-        init_db()
-
-        # Build the Gmail API service
         service = build("gmail", "v1", credentials=creds)
+        return service
+    except Exception as error:
+        print(f"Failed to build Gmail service: {error}")
+        return None
+
+def fetch_and_analyze_emails(service):
+    """
+    Fetch unread emails, check cache, and perform AI analysis if necessary.
+    """
+    try:
+        init_db()
         print("Fetching the latest 10 unread emails...")
         
-        # Request a list of unread messages
-        # q="is:unread" filters for unread emails, maxResults limits the output
         results = service.users().messages().list(userId="me", q="is:unread", maxResults=10).execute()
         messages = results.get("messages", [])
 
@@ -76,11 +77,9 @@ def main():
         for message in messages:
             email_id = message["id"]
 
-            # Fetch the specific details of each message using its ID
-            # We only request the metadata headers to save bandwidth and time
             msg = service.users().messages().get(
                 userId="me", 
-                id=message["id"], 
+                id=email_id, 
                 format="full"
             ).execute()
             
@@ -88,8 +87,8 @@ def main():
             headers = msg.get("payload", {}).get("headers", [])
             sender = "Unknown Sender"
             subject = "No Subject"
+            receive_time = "Unknown Time"
             
-            # Extract the From and Subject headers
             for header in headers:
                 if header["name"] == "From":
                     sender = header["value"]
@@ -101,29 +100,23 @@ def main():
             print(f"From:    {sender}")
             print(f"Subject: {subject}")
 
-
-            # 1. 執行第一層路由篩選
             initial_tag, needs_ai = route_email(sender, subject)
             print(f"Route: {initial_tag}")
             
-            # 2. 檢查資料庫是否已經有這封信的分析紀錄
             cached_result = get_cached_result(email_id)
             
             if cached_result:
-                print("📦 [資料庫快取] 讀取已分析結果...")
-                print(f"🏷️ 最終分類: {cached_result.get('category')}")
-                print(f"📌 摘要: {cached_result.get('summary')}")
+                print("📦 [Cache] Reading analyzed result from database...")
+                print(f"🏷️ Final Category: {cached_result.get('category')}")
+                print(f"📌 Summary: {cached_result.get('summary')}")
             else:
                 email_body = get_email_body(payload)
                 
-                # check whether the mail needs to be analyzed by AI
                 if needs_ai and len(email_body) > 20:
-                    print("🧠 AI 分析與分類中...")
+                    print("🧠 AI analysis and classification in progress...")
                     
-                    # 🌟 這裡就是我們新增的 Moodle 判斷邏輯
                     is_moodle_mail = (initial_tag == "📚 Moodle 通知")
                     
-                    # 呼叫 AI 時，把 is_moodle 的狀態傳進去
                     ai_result = analyze_email_content(
                         email_body, 
                         sender, 
@@ -131,25 +124,20 @@ def main():
                         is_moodle=is_moodle_mail
                     )
                     
-                    print(f"🏷️ 最終分類: {ai_result.get('category')}")
-                    print(f"📌 摘要: {ai_result.get('summary')}")
+                    print(f"🏷️ Final Category: {ai_result.get('category')}")
+                    print(f"📌 Summary: {ai_result.get('summary')}")
                     if ai_result.get('event_time'):
-                        print(f"⏰ 關鍵時間: {ai_result.get('event_time')}")
+                        print(f"⏰ Key Time: {ai_result.get('event_time')}")
                     
-                    # 🛡️ 防呆機制：只有當分類不是失敗時，才存入資料庫
                     if ai_result.get('category') != "⚠️ Analysis Failed":
                         save_analysis(email_id, ai_result)
                     else:
-                        print("⚠️ 分析失敗，本次不寫入資料庫快取。")
+                        print("⚠️ Analysis failed, skipping database cache write for this execution.")
 
                 else:
-                    print(f"🏷️ 最終分類: {initial_tag}")
-
+                    print(f"🏷️ Final Category: {initial_tag}")
+                    
             print("-" * 50)
 
     except Exception as error:
-        print(f"An error occurred: {error}")
-
-
-if __name__ == "__main__":
-    main()
+        print(f"An error occurred during fetch and analyze: {error}")

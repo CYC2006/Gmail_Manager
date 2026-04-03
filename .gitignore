@@ -19,9 +19,13 @@ __pycache__/
 *.sqlite
 email_cache.db
 
-
 # =========================
 # editor and os system settings
 # =========================
 .vscode/
 .DS_Store
+
+# =========================
+# special case
+# =========================
+mail_structure.txt
