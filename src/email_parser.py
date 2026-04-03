@@ -20,12 +20,6 @@ def get_email_body(payload):
                 data = part["body"].get("data")
                 if data and not body:
                     safe_data = data + "=" * (-len(data) % 4)
-                    body += base64.urlsafe_b64decode(safe_data).decode("utf-8")
-            
-            elif mime_type == "text/html":
-                data = part["body"].get("data")
-                if data and not body:
-                    safe_data = data + "=" * (-len(data) % 4)
                     raw_html = base64.urlsafe_b64decode(safe_data).decode("utf-8")
                     
                     # use BeautifulSoup to remove all HTML tags

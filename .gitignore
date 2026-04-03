@@ -7,12 +7,18 @@ token.json
 # =========================
 # Python virtual environment and cache
 # =========================
+.env
 .venv/
 venv/
 env/
 __pycache__/
+
 *.py[cod]
 *$py.class
+*.db
+*.sqlite
+email_cache.db
+
 
 # =========================
 # editor and os system settings
