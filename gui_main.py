@@ -16,11 +16,11 @@ def main(page: ft.Page):
     # ==========================
     def create_email_card(sender: str, time_str: str, category: str, summary: str, tag_color: str):
         return ft.Card(
-            elevation=2,
             margin=10, 
             content=ft.Container(
                 bgcolor="#2d2d2d", 
                 padding=15,
+                border_radius=8,
                 content=ft.Column([
                     ft.Row([
                         ft.Text(sender, weight=ft.FontWeight.BOLD, size=16, expand=True),
@@ -36,7 +36,6 @@ def main(page: ft.Page):
                         ft.Text(summary, size=14, expand=True, color="#cccccc")
                     ]),
                     ft.Row([
-                        # 🔧 全部修正為 ft.Icons 列舉
                         ft.IconButton(icon=ft.Icons.MARK_EMAIL_READ, tooltip="Mark as Read", icon_color=ft.Colors.BLUE_400),
                         ft.IconButton(icon=ft.Icons.STAR_BORDER, tooltip="Star", icon_color=ft.Colors.YELLOW_600),
                         ft.IconButton(icon=ft.Icons.ARCHIVE, tooltip="Archive", icon_color=ft.Colors.GREEN_400),
@@ -54,7 +53,7 @@ def main(page: ft.Page):
         bgcolor="#1e1e1e",
         padding=20,
         content=ft.Column([
-            ft.Text("Cyc's Gmail Manager", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
+            ft.Text("NCKU Gmail Manager", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_200),
             ft.Divider(height=20, color=ft.Colors.OUTLINE_VARIANT),
             
             # 🔧 全部修正為 ft.Icons 列舉
