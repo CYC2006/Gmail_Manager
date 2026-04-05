@@ -73,45 +73,40 @@ def get_category_color(category):
 
 def fetch_and_analyze_emails(service):
     """
-    Fetch unread emails, check cache, perform AI analysis if necessary,
-    and RETURN a list of structured dictionaries for the GUI.
+    Generator version: yields one email dict at a time as each is processed.
     """
-    email_data_list = [] # 📦 The array we will return to the GUI
+    init_db()
+    print("[SYSTEM] Fetching the latest 10 unread emails for GUI...")
+    
+    results = service.users().messages().list(userId="me", q="is:unread", maxResults=10).execute()
+    messages = results.get("messages", [])
 
-    try:
-        init_db()
-        print("[SYSTEM] Fetching the latest 10 unread emails for GUI...")
-        
-        results = service.users().messages().list(userId="me", q="is:unread", maxResults=10).execute()
-        messages = results.get("messages", [])
+    if not messages:
+        print("[SYSTEM] No unread messages found.")
+        return
 
-        if not messages:
-            print("[SYSTEM] No unread messages found.")
-            return [] # Return empty list if no emails
-
-        for message in messages:
+    for message in messages:
+        try:
             email_id = message["id"]
             msg = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             
             payload = msg.get("payload", {})
-            headers = msg.get("payload", {}).get("headers", [])
+            headers = payload.get("headers", [])
             sender = "Unknown Sender"
             subject = "No Subject"
             receive_time = "Unknown Time"
             
             for header in headers:
                 if header["name"] == "From":
-                    sender = header["value"].split('<')[0].strip() # Clean up sender name
+                    sender = header["value"].split('<')[0].strip()
                 if header["name"] == "Subject":
                     subject = header["value"]
                 if header["name"] == "Date":
                     receive_time = header["value"]
 
             initial_tag, needs_ai = route_email(sender, subject)
-            
-            # Variables to store final data for this specific email
             final_category = initial_tag
-            final_summary = subject # Default summary is the subject
+            final_summary = subject
             
             cached_result = get_cached_result(email_id)
             
@@ -125,35 +120,27 @@ def fetch_and_analyze_emails(service):
                 if needs_ai and len(email_body) > 20:
                     print(f"[AI] Analyzing: {subject[:20]}...")
                     is_moodle_mail = (initial_tag == "📚 Moodle 通知")
-                    
                     ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
                     
                     if ai_result.get('category') != "⚠️ Analysis Failed":
                         final_category = ai_result.get('category')
                         final_summary = ai_result.get('summary')
-                        # Inject sender and time for DB saving since ai_result might not have them
                         ai_result["sender"] = sender
                         ai_result["time"] = receive_time
                         save_analysis(email_id, ai_result)
                     else:
                         print(f"⚠️ Analysis failed for {email_id}")
-                else:
-                    final_category = initial_tag
-                    final_summary = subject
-            
-            # 🎯 Pack the processed data into our dictionary format for Flet
-            email_data_list.append({
-                "id": email_id,
-                "sender": sender,
-                "time": receive_time[:16], # Truncate long date strings
-                "category": final_category,
-                "summary": final_summary,
-                "tag_color": get_category_color(final_category)
-            })
 
-        print(f"[SYSTEM] Successfully processed {len(email_data_list)} emails for GUI.")
-        return email_data_list # 🚀 Return the payload!
+        except Exception as error:
+            print(f"[ERROR] Failed to process email {message['id']}: {error}")
+            continue  # 這封失敗就跳過，繼續下一封
 
-    except Exception as error:
-        print(f"[ERROR] An error occurred during fetch and analyze: {error}")
-        return []
+        # yield 在 try/except 外面
+        yield {
+            "id": email_id,
+            "sender": sender,
+            "time": receive_time[:16],
+            "category": final_category,
+            "summary": final_summary,
+            "tag_color": get_category_color(final_category)
+        }
