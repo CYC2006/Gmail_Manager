@@ -12,10 +12,9 @@ from src.db_manager import init_db, get_cached_result, save_analysis
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
+
+# Route email based on sender and subject to determine AI analysis necessity.  
 def route_email(sender, subject):
-    """
-    Route email based on sender and subject to determine AI analysis necessity.
-    """
     sender_lower = sender.lower()
     
     if "moodle" in sender_lower:
@@ -31,10 +30,9 @@ def route_email(sender, subject):
     else:
         return "✉️ 一般信件", True
 
+
+# Handle OAuth2 authentication and return the Gmail API service instance.
 def get_gmail_service():
-    """
-    Handle OAuth2 authentication and return the Gmail API service instance.
-    """
     creds = None
     if os.path.exists("token.json"):
         creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -56,32 +54,44 @@ def get_gmail_service():
         print(f"Failed to build Gmail service: {error}")
         return None
 
+
+# Map AI categories to Flet safe color strings for UI tags.
+def get_category_color(category):
+    if "Moodle" in category or "作業" in category or "Deadline" in category:
+        return "orange600"
+    elif "重要" in category or "警告" in category:
+        return "red600"
+    elif "活動" in category or "講座" in category:
+        return "green600"
+    elif "成績" in category:
+        return "purple600"
+    elif "一般" in category or "等待" in category:
+        return "blue600"
+    else:
+        return "grey600" # Fallback color
+
+
 def fetch_and_analyze_emails(service):
     """
-    Fetch unread emails, check cache, and perform AI analysis if necessary.
+    Fetch unread emails, check cache, perform AI analysis if necessary,
+    and RETURN a list of structured dictionaries for the GUI.
     """
+    email_data_list = [] # 📦 The array we will return to the GUI
+
     try:
         init_db()
-        print("Fetching the latest 10 unread emails...")
+        print("[SYSTEM] Fetching the latest 10 unread emails for GUI...")
         
         results = service.users().messages().list(userId="me", q="is:unread", maxResults=10).execute()
         messages = results.get("messages", [])
 
         if not messages:
-            print("No unread messages found.")
-            return
+            print("[SYSTEM] No unread messages found.")
+            return [] # Return empty list if no emails
 
-        print("\nUnread Messages:")
-        print("-" * 50)
-        
         for message in messages:
             email_id = message["id"]
-
-            msg = service.users().messages().get(
-                userId="me", 
-                id=email_id, 
-                format="full"
-            ).execute()
+            msg = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             
             payload = msg.get("payload", {})
             headers = msg.get("payload", {}).get("headers", [])
@@ -91,53 +101,59 @@ def fetch_and_analyze_emails(service):
             
             for header in headers:
                 if header["name"] == "From":
-                    sender = header["value"]
+                    sender = header["value"].split('<')[0].strip() # Clean up sender name
                 if header["name"] == "Subject":
                     subject = header["value"]
                 if header["name"] == "Date":
                     receive_time = header["value"]
-                    
-            print(f"From:    {sender}")
-            print(f"Subject: {subject}")
 
             initial_tag, needs_ai = route_email(sender, subject)
-            print(f"Route: {initial_tag}")
+            
+            # Variables to store final data for this specific email
+            final_category = initial_tag
+            final_summary = subject # Default summary is the subject
             
             cached_result = get_cached_result(email_id)
             
             if cached_result:
-                print("📦 [Cache] Reading analyzed result from database...")
-                print(f"🏷️ Final Category: {cached_result.get('category')}")
-                print(f"📌 Summary: {cached_result.get('summary')}")
+                print(f"[CACHE] Loaded: {subject[:20]}...")
+                final_category = cached_result.get('category')
+                final_summary = cached_result.get('summary')
             else:
                 email_body = get_email_body(payload)
                 
                 if needs_ai and len(email_body) > 20:
-                    print("🧠 AI analysis and classification in progress...")
-                    
+                    print(f"[AI] Analyzing: {subject[:20]}...")
                     is_moodle_mail = (initial_tag == "📚 Moodle 通知")
                     
-                    ai_result = analyze_email_content(
-                        email_body, 
-                        sender, 
-                        receive_time, 
-                        is_moodle=is_moodle_mail
-                    )
-                    
-                    print(f"🏷️ Final Category: {ai_result.get('category')}")
-                    print(f"📌 Summary: {ai_result.get('summary')}")
-                    if ai_result.get('event_time'):
-                        print(f"⏰ Key Time: {ai_result.get('event_time')}")
+                    ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
                     
                     if ai_result.get('category') != "⚠️ Analysis Failed":
+                        final_category = ai_result.get('category')
+                        final_summary = ai_result.get('summary')
+                        # Inject sender and time for DB saving since ai_result might not have them
+                        ai_result["sender"] = sender
+                        ai_result["time"] = receive_time
                         save_analysis(email_id, ai_result)
                     else:
-                        print("⚠️ Analysis failed, skipping database cache write for this execution.")
-
+                        print(f"⚠️ Analysis failed for {email_id}")
                 else:
-                    print(f"🏷️ Final Category: {initial_tag}")
-                    
-            print("-" * 50)
+                    final_category = initial_tag
+                    final_summary = subject
+            
+            # 🎯 Pack the processed data into our dictionary format for Flet
+            email_data_list.append({
+                "id": email_id,
+                "sender": sender,
+                "time": receive_time[:16], # Truncate long date strings
+                "category": final_category,
+                "summary": final_summary,
+                "tag_color": get_category_color(final_category)
+            })
+
+        print(f"[SYSTEM] Successfully processed {len(email_data_list)} emails for GUI.")
+        return email_data_list # 🚀 Return the payload!
 
     except Exception as error:
-        print(f"An error occurred during fetch and analyze: {error}")
+        print(f"[ERROR] An error occurred during fetch and analyze: {error}")
+        return []
