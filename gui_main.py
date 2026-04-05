@@ -24,38 +24,129 @@ def main(page: ft.Page):
     # 2. UI Components
     # ==========================
 
-    email_list_view = ft.ListView(expand=True, spacing=5)
+    email_list_view = ft.ListView(expand=True, spacing=4)
     status_text = ft.Text("", color=ft.Colors.BLUE_200, size=13)
 
+    def get_sub_category_color(category):
+        """為 Moodle 子分類決定 tag 顏色"""
+        if "作業死線" in category or "Deadline" in category:
+            return ft.Colors.ORANGE_600
+        elif "繳交確認" in category or "繳交" in category:
+            return ft.Colors.GREEN_600
+        elif "考試" in category:
+            return ft.Colors.RED_600
+        elif "停課" in category:
+            return ft.Colors.PURPLE_600
+        elif "成績" in category:
+            return ft.Colors.BLUE_600
+        else:
+            return ft.Colors.GREY_600
+
     def create_email_card(data):
-        return ft.Card(
-            margin=10,
-            content=ft.Container(
-                bgcolor="#2d2d2d",
-                padding=15,
-                border_radius=12,
-                content=ft.Column([
-                    ft.Row([
-                        ft.Text(data['sender'], weight=ft.FontWeight.BOLD, size=16, expand=True),
-                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12)
-                    ]),
-                    ft.Row([
-                        ft.Container(
-                            content=ft.Text(data['category'], size=12, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-                            bgcolor=data['tag_color'],
-                            padding=5,
-                            border_radius=5,
-                        ),
-                        ft.Text(data['summary'], size=14, expand=True, color="#cccccc")
-                    ]),
-                    ft.Row([
-                        ft.IconButton(icon=ft.Icons.MARK_EMAIL_READ, icon_size=18),
-                        ft.IconButton(icon=ft.Icons.STAR_BORDER, icon_size=18, icon_color=ft.Colors.YELLOW_600),
-                        ft.IconButton(icon=ft.Icons.ARCHIVE, icon_size=18, icon_color=ft.Colors.GREEN_400),
-                        ft.IconButton(icon=ft.Icons.DELETE, icon_size=18, icon_color=ft.Colors.RED_400),
-                    ], alignment=ft.MainAxisAlignment.END, spacing=0)
-                ])
+        is_moodle = "Moodle" in data['category'] or "📚" in data['category']
+
+        if is_moodle:
+            # Moodle 專屬標題：學士帽 icon + "Moodle"
+            sender_widget = ft.Row(
+                controls=[
+                    ft.Icon(ft.Icons.SCHOOL, size=16, color=ft.Colors.ORANGE_300),
+                    ft.Text("Moodle", weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.ORANGE_300),
+                ],
+                spacing=5,
             )
+            tag_color = get_sub_category_color(data['category'])
+        else:
+            sender_widget = ft.Text(
+                data['sender'],
+                weight=ft.FontWeight.BOLD,
+                size=15,
+                expand=True,
+                color=ft.Colors.WHITE,
+            )
+            tag_color = data['tag_color']
+
+        return ft.Card(
+            margin=ft.margin.symmetric(horizontal=10, vertical=3),
+            content=ft.Container(
+                bgcolor="#2a2a2a",
+                padding=ft.padding.symmetric(horizontal=15, vertical=10),
+                border_radius=10,
+                content=ft.Column(
+                    spacing=6,
+                    controls=[
+                        # 上排：寄件人/Moodle icon ＋ 右側時間＋按鈕
+                        ft.Row(
+                            controls=[
+                                # 左側寄件人
+                                ft.Container(content=sender_widget, expand=True),
+                                # 右側：時間 + 四個按鈕
+                                ft.Row(
+                                    controls=[
+                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=11),
+                                        ft.IconButton(
+                                            icon=ft.Icons.MARK_EMAIL_READ,
+                                            icon_size=16,
+                                            padding=0,
+                                            tooltip="標記已讀",
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.STAR_BORDER,
+                                            icon_size=16,
+                                            padding=0,
+                                            icon_color=ft.Colors.YELLOW_600,
+                                            tooltip="加星號",
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.ARCHIVE,
+                                            icon_size=16,
+                                            padding=0,
+                                            icon_color=ft.Colors.GREEN_400,
+                                            tooltip="封存",
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE,
+                                            icon_size=16,
+                                            padding=0,
+                                            icon_color=ft.Colors.RED_400,
+                                            tooltip="刪除",
+                                        ),
+                                    ],
+                                    spacing=0,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        # 下排：分類 tag + 摘要
+                        ft.Row(
+                            controls=[
+                                ft.Container(
+                                    content=ft.Text(
+                                        data['category'],
+                                        size=11,
+                                        color=ft.Colors.WHITE,
+                                        weight=ft.FontWeight.BOLD,
+                                    ),
+                                    bgcolor=tag_color,
+                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                                    border_radius=5,
+                                ),
+                                ft.Text(
+                                    data['summary'],
+                                    size=13,
+                                    expand=True,
+                                    color="#bbbbbb",
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    max_lines=1,
+                                ),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                ),
+            ),
         )
 
     # ==========================
@@ -66,13 +157,11 @@ def main(page: ft.Page):
         nonlocal gmail_service
         try:
             if not gmail_service:
-                # 同步函式用 to_thread 避免 block UI
                 gmail_service = await asyncio.to_thread(get_gmail_service)
 
             email_list_view.controls.clear()
             page.update()
 
-            # generator 的每一次 next() 都是 blocking（AI 分析），所以用 to_thread
             def get_next(gen):
                 try:
                     return next(gen)
@@ -85,8 +174,8 @@ def main(page: ft.Page):
                 if email_data is None:
                     break
                 email_list_view.controls.append(create_email_card(email_data))
-                page.update()  # 每封完成立刻更新
-                await asyncio.sleep(0)  # 讓出控制權給 event loop 渲染
+                page.update()
+                await asyncio.sleep(0)
 
             status_text.value = ""
             page.update()
@@ -102,7 +191,7 @@ def main(page: ft.Page):
         email_list_view.controls.clear()
         status_text.value = "載入中..."
         page.update()
-        page.run_task(fetch_task)  # 用 run_task 啟動 async coroutine
+        page.run_task(fetch_task)
 
     # ==========================
     # 4. Layout Assembly
@@ -134,11 +223,11 @@ def main(page: ft.Page):
                     ft.IconButton(
                         icon=ft.Icons.REFRESH,
                         icon_color=ft.Colors.BLUE_200,
-                        on_click=on_refresh_click
+                        on_click=on_refresh_click,
                     )
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(height=20, color="transparent"),
-                email_list_view
+                email_list_view,
             ]
         )
     )
@@ -151,7 +240,7 @@ def main(page: ft.Page):
             controls=[
                 sidebar,
                 ft.VerticalDivider(width=1, color=ft.Colors.OUTLINE_VARIANT),
-                main_content
+                main_content,
             ]
         )
     )
