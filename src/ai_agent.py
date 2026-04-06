@@ -9,25 +9,29 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT_DIR, '.env')
 load_dotenv(dotenv_path=ENV_PATH)
 
+# Get Gemini API Key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 if not GEMINI_API_KEY:
-    raise ValueError("找不到 API Key！請檢查根目錄是否有 .env 檔案。")
+    raise ValueError("API Key not Found")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+
+# Load Prompts into memory, avoid repeatedly read the hard drive
+PROMPTS = {}
+for p_file in ['moodle_analyzer1.txt', 'email_analyzer2.txt']:
+    p_path = os.path.join(os.path.dirname(__file__), 'prompt', p_file)
+    with open(p_path, 'r', encoding='utf-8') as file:
+        PROMPTS[p_file] = file.read()
+
+
+# Analyze Email Content by Predefined Prompt
 def analyze_email_content(clean_text, sender, receive_time, is_moodle=False):
-    """
-    讀取外部 Prompt 並將信件內文交給 Gemini 進行分析與資訊萃取
-    """
     text_to_analyze = clean_text[:2000] 
     
-    # [Prompt Routing] Determine which template to use
+    # Determine which template to use, directly get prompts from memory
     prompt_file = 'moodle_analyzer1.txt' if is_moodle else 'email_analyzer2.txt'
-    prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', prompt_file)
-    
-    with open(prompt_path, 'r', encoding='utf-8') as file:
-        prompt_template = file.read()
+    prompt_template = PROMPTS[prompt_file]
 
     safe_sender = json.dumps(sender)[1:-1]
     safe_time = json.dumps(receive_time)[1:-1]
@@ -50,20 +54,18 @@ def analyze_email_content(clean_text, sender, receive_time, is_moodle=False):
             
             clean_response = response.text.strip()
             if clean_response.startswith("```json"):
-                clean_response = clean_response[7:-3]
+                clean_response = clean_response.strip("`").removeprefix("json").strip()
                 
             result_dict = json.loads(clean_response)
             return result_dict  # 成功就直接回傳，結束迴圈
             
         except Exception as e:
             error_msg = str(e)
-            # 如果捕捉到 429 頻率限制錯誤
             if '429' in error_msg or 'RESOURCE_EXHAUSTED' in error_msg:
-                wait_time = 20  # 稍微等久一點確保跨過一分鐘的計算區間
+                wait_time = 20
                 print(f"🚦 觸發 API 頻率限制 (429)！等待 {wait_time} 秒後重試 (第 {attempt + 1}/{max_retries} 次)...")
                 time.sleep(wait_time)
             else:
-                # 如果是其他錯誤 (例如 JSON 解析失敗)，就直接印出錯誤並中斷
                 print(f"❌ AI 分析失敗: {e}")
                 break
                 
