@@ -23,7 +23,7 @@ def analyze_email_content(clean_text, sender, receive_time, is_moodle=False):
     text_to_analyze = clean_text[:2000] 
     
     # [Prompt Routing] Determine which template to use
-    prompt_file = 'moodle_analyzer1.txt' if is_moodle else 'email_analyzer1.txt'
+    prompt_file = 'moodle_analyzer1.txt' if is_moodle else 'email_analyzer2.txt'
     prompt_path = os.path.join(os.path.dirname(__file__), 'prompts', prompt_file)
     
     with open(prompt_path, 'r', encoding='utf-8') as file:

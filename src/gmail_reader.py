@@ -71,14 +71,12 @@ def get_category_color(category):
         return "grey600" # Fallback color
 
 
+# Generator version: yields one email dict at a time as each is processed.
 def fetch_and_analyze_emails(service):
-    """
-    Generator version: yields one email dict at a time as each is processed.
-    """
     init_db()
     print("[SYSTEM] Fetching the latest 10 unread emails for GUI...")
     
-    results = service.users().messages().list(userId="me", q="is:unread", maxResults=10).execute()
+    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=10).execute()
     messages = results.get("messages", [])
 
     if not messages:
@@ -90,6 +88,9 @@ def fetch_and_analyze_emails(service):
             email_id = message["id"]
             msg = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             
+            label_ids = msg.get("labelIds", [])
+            is_unread = "UNREAD" in label_ids
+
             payload = msg.get("payload", {})
             headers = payload.get("headers", [])
             sender = "Unknown Sender"
@@ -142,5 +143,6 @@ def fetch_and_analyze_emails(service):
             "time": receive_time[:16],
             "category": final_category,
             "summary": final_summary,
-            "tag_color": get_category_color(final_category)
+            "tag_color": get_category_color(final_category),
+            "is_unread": is_unread
         }
