@@ -55,28 +55,12 @@ def get_gmail_service():
         return None
 
 
-# Map AI categories to Flet safe color strings for UI tags.
-def get_category_color(category):
-    if "Moodle" in category or "作業" in category or "Deadline" in category:
-        return "orange600"
-    elif "重要" in category or "警告" in category:
-        return "red600"
-    elif "活動" in category or "講座" in category:
-        return "green600"
-    elif "成績" in category:
-        return "purple600"
-    elif "一般" in category or "等待" in category:
-        return "blue600"
-    else:
-        return "grey600" # Fallback color
-
-
 # Generator version: yields one email dict at a time as each is processed.
 def fetch_and_analyze_emails(service):
     init_db()
-    print("[SYSTEM] Fetching the latest 10 unread emails for GUI...")
+    print("[SYSTEM] Fetching the latest 20 unread emails for GUI...")
     
-    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=10).execute()
+    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=20).execute()
     messages = results.get("messages", [])
 
     if not messages:
@@ -143,6 +127,5 @@ def fetch_and_analyze_emails(service):
             "time": receive_time[:16],
             "category": final_category,
             "summary": final_summary,
-            "tag_color": get_category_color(final_category),
             "is_unread": is_unread
         }

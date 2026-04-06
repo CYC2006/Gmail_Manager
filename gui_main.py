@@ -35,26 +35,34 @@ def main(page: ft.Page):
         """
         return "moodle" in data['sender'].lower()
 
+    # Map predefined AI categories and routing tags to Flet colors using a dictionary
     def get_tag_color(category: str):
-        """根據 AI 回傳的 category 字串決定 tag 顏色"""
-        if "作業死線" in category or "Deadline" in category:
-            return ft.Colors.ORANGE_700
-        elif "繳交確認" in category or "繳交" in category:
-            return ft.Colors.GREEN_700
-        elif "考試" in category:
-            return ft.Colors.RED_700
-        elif "停課" in category:
-            return ft.Colors.PURPLE_700
-        elif "成績" in category:
-            return ft.Colors.BLUE_700
-        elif "講座" in category or "活動" in category:
-            return ft.Colors.TEAL_700
-        elif "重要" in category or "警告" in category:
-            return ft.Colors.RED_700
-        elif "廣告" in category:
-            return ft.Colors.GREY_700
-        else:
-            return ft.Colors.GREY_600
+        color_map = {
+            # Moodle Categories
+            "作業死線": ft.Colors.ORANGE_700,
+            "作業公布": ft.Colors.BLUE_GREY_600,
+            "繳交確認": ft.Colors.GREEN_700,
+            "成績公布": ft.Colors.BLUE_700,
+            "停課通知": ft.Colors.PURPLE_700,
+            "考試相關": ft.Colors.RED_700,
+            
+            # General Email Categories
+            "重要公告": ft.Colors.RED_700,
+            "講座活動": ft.Colors.TEAL_700,
+            "一般宣導": ft.Colors.BLUE_400,
+            
+            # Route Email Tags & Errors
+            "合作社廣告": ft.Colors.BROWN_500,
+            "外部學習": ft.Colors.INDIGO_500,
+            "Analysis Failed": ft.Colors.RED_900
+        }
+
+        # Iterate through the dictionary keys to find a match in the category string
+        for key, color in color_map.items():
+            if key in category:
+                return color
+                
+        return ft.Colors.GREY_600
 
     def create_email_card(data):
         # Determine color of card bg by unread or read
@@ -64,11 +72,11 @@ def main(page: ft.Page):
         if is_moodle(data):
             title_control = ft.Row(
                 controls=[
-                    ft.Icon(ft.Icons.SCHOOL, size=15, color=ft.Colors.ORANGE_300),
+                    ft.Icon(ft.Icons.SCHOOL, size=20, color=ft.Colors.ORANGE_300),
                     ft.Text(
-                        "Moodle",
+                        " Moodle",
                         weight=ft.FontWeight.BOLD,
-                        size=15,
+                        size=18,
                         color=ft.Colors.ORANGE_300,
                     ),
                 ],
@@ -78,7 +86,7 @@ def main(page: ft.Page):
             title_control = ft.Text(
                 data['sender'],
                 weight=ft.FontWeight.BOLD,
-                size=15,
+                size=18,
                 color=ft.Colors.WHITE,
                 overflow=ft.TextOverflow.ELLIPSIS,
                 max_lines=1,
@@ -106,7 +114,7 @@ def main(page: ft.Page):
                                         ft.Text(
                                             data['time'],
                                             color=ft.Colors.OUTLINE,
-                                            size=11,
+                                            size=12,
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.MARK_EMAIL_READ,
