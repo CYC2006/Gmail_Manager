@@ -20,7 +20,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 # Load Prompts into memory, avoid repeatedly read the hard drive
 PROMPTS = {}
 for p_file in ['moodle_analyzer1.txt', 'email_analyzer2.txt']:
-    p_path = os.path.join(os.path.dirname(__file__), 'prompt', p_file)
+    p_path = os.path.join(os.path.dirname(__file__), 'prompts', p_file)
     with open(p_path, 'r', encoding='utf-8') as file:
         PROMPTS[p_file] = file.read()
 
