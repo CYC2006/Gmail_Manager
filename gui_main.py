@@ -236,7 +236,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Text("NCKU Gmail Manager", size=18, weight="bold", color=ft.Colors.BLUE_200),
             ft.Divider(height=20),
-            ft.ListTile(leading=ft.Icon(ft.Icons.INBOX), title=ft.Text("Unread"), selected=True),
+            ft.ListTile(leading=ft.Icon(ft.Icons.INBOX), title=ft.Text("Inbox"), selected=True),
             ft.ListTile(leading=ft.Icon(ft.Icons.SCHOOL), title=ft.Text("Moodle")),
             ft.ListTile(leading=ft.Icon(ft.Icons.CAMPAIGN), title=ft.Text("Announcements")),
             ft.Divider(height=20),
@@ -252,7 +252,7 @@ def main(page: ft.Page):
             expand=True,
             controls=[
                 ft.Row([
-                    ft.Text("Inbox", size=28, weight="bold"),
+                    ft.Text("Inbox", size=30, weight="bold"),
                     status_text,
                     ft.IconButton(
                         icon=ft.Icons.REFRESH,

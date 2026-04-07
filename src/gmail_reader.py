@@ -66,17 +66,21 @@ def fetch_and_analyze_emails(service):
     if not messages:
         print("[SYSTEM] No unread messages found.")
         return
-
+    
     for message in messages:
         try:
             email_id = message["id"]
-            msg = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             
-            label_ids = msg.get("labelIds", [])
+            # 🛠️ 優化 1：第一階段只抓取輕量的 Metadata (Headers & Labels)
+            msg_meta = service.users().messages().get(
+                userId="me", id=email_id, format="metadata",
+                metadataHeaders=["From", "Subject", "Date"]
+            ).execute()
+            
+            label_ids = msg_meta.get("labelIds", [])
             is_unread = "UNREAD" in label_ids
 
-            payload = msg.get("payload", {})
-            headers = payload.get("headers", [])
+            headers = msg_meta.get("payload", {}).get("headers", [])
             sender = "Unknown Sender"
             subject = "No Subject"
             receive_time = "Unknown Time"
@@ -84,15 +88,16 @@ def fetch_and_analyze_emails(service):
             for header in headers:
                 if header["name"] == "From":
                     sender = header["value"].split('<')[0].strip()
-                if header["name"] == "Subject":
+                elif header["name"] == "Subject":
                     subject = header["value"]
-                if header["name"] == "Date":
+                elif header["name"] == "Date":
                     receive_time = header["value"]
 
             initial_tag, needs_ai = route_email(sender, subject)
             final_category = initial_tag
             final_summary = subject
             
+            # 檢查快取
             cached_result = get_cached_result(email_id)
             
             if cached_result:
@@ -100,27 +105,29 @@ def fetch_and_analyze_emails(service):
                 final_category = cached_result.get('category')
                 final_summary = cached_result.get('summary')
             else:
-                email_body = get_email_body(payload)
-                
-                if needs_ai and len(email_body) > 20:
-                    print(f"[AI] Analyzing: {subject[:20]}...")
-                    is_moodle_mail = (initial_tag == "📚 Moodle 通知")
-                    ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
+                # 🛠️ 優化 2：只有 Cache Miss 時，才發動耗時的 full payload 下載
+                if needs_ai:
+                    msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
+                    email_body = get_email_body(msg_full.get("payload", {}))
                     
-                    if ai_result.get('category') != "⚠️ Analysis Failed":
-                        final_category = ai_result.get('category')
-                        final_summary = ai_result.get('summary')
-                        ai_result["sender"] = sender
-                        ai_result["time"] = receive_time
-                        save_analysis(email_id, ai_result)
-                    else:
-                        print(f"⚠️ Analysis failed for {email_id}")
+                    if len(email_body) > 20:
+                        print(f"[AI] Analyzing: {subject[:20]}...")
+                        is_moodle_mail = (initial_tag == "📚 Moodle 通知")
+                        ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
+                        
+                        if ai_result.get('category') != "⚠️ Analysis Failed":
+                            final_category = ai_result.get('category')
+                            final_summary = ai_result.get('summary')
+                            ai_result["sender"] = sender
+                            ai_result["time"] = receive_time
+                            save_analysis(email_id, ai_result)
+                        else:
+                            print(f"⚠️ Analysis failed for {email_id}")
 
         except Exception as error:
             print(f"[ERROR] Failed to process email {message['id']}: {error}")
-            continue  # 這封失敗就跳過，繼續下一封
+            continue
 
-        # yield 在 try/except 外面
         yield {
             "id": email_id,
             "sender": sender,
