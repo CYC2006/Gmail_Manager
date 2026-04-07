@@ -20,7 +20,7 @@ def route_email(sender, subject):
     if "moodle" in sender_lower:
         return "📚 Moodle 通知", True  
     elif "消費合作社" in sender:
-        return "🗑️ 合作社廣告", False
+        return "🗑️ 校園廣告", False
     elif "coursera" in sender_lower:
         return "💻 外部學習", False
         
@@ -53,6 +53,22 @@ def get_gmail_service():
     except Exception as error:
         print(f"Failed to build Gmail service: {error}")
         return None
+    
+
+# get Number of mails of INBOX / UNREAD / STARRED
+def get_inbox_stats(service):
+    try:
+        inbox  = service.users().labels().get(userId="me", id="INBOX").execute()
+        unread = service.users().labels().get(userId="me", id="UNREAD").execute()
+        starred = service.users().labels().get(userId="me", id="STARRED").execute()
+        return {
+            "inbox":   inbox.get("messagesTotal", 0),
+            "unread":  inbox.get("messagesUnread", 0),
+            "starred": starred.get("messagesTotal", 0),
+        }
+    except Exception as e:
+        print(f"[ERROR] Failed to get inbox stats: {e}")
+        return {"inbox": 0, "unread": 0, "starred": 0}
 
 
 # Generator version: yields one email dict at a time as each is processed.
@@ -87,7 +103,7 @@ def fetch_and_analyze_emails(service):
             
             for header in headers:
                 if header["name"] == "From":
-                    sender = header["value"].split('<')[0].strip()
+                    sender = header["value"].split('<')[0].strip().strip('"').strip('\u201c').strip('\u201d').strip()
                 elif header["name"] == "Subject":
                     subject = header["value"]
                 elif header["name"] == "Date":

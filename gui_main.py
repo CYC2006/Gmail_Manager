@@ -5,7 +5,7 @@ import asyncio
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails
+from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
 
 def main(page: ft.Page):
     # ==========================
@@ -27,48 +27,69 @@ def main(page: ft.Page):
     email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.padding.only(right=8))
     status_text = ft.Text("", color=ft.Colors.BLUE_200, size=13)
 
+    stats_row = ft.Row(
+        controls=[
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.ALL_INBOX, size=13, color=ft.Colors.BLUE_GREY_300),
+                    ft.Text("--", size=12, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
+                ], spacing=3),
+                bgcolor="#2a2a2a", border_radius=6,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                tooltip="Inbox 總數",
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.MARK_EMAIL_UNREAD, size=13, color=ft.Colors.BLUE_300),
+                    ft.Text("--", size=12, color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
+                ], spacing=3),
+                bgcolor="#2a2a2a", border_radius=6,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                tooltip="未讀數",
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.STAR, size=13, color=ft.Colors.YELLOW_600),
+                    ft.Text("--", size=12, color=ft.Colors.YELLOW_600, weight=ft.FontWeight.BOLD),
+                ], spacing=3),
+                bgcolor="#2a2a2a", border_radius=6,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                tooltip="星號數",
+            ),
+        ],
+        spacing=6,
+    )
+
+    inbox_text   = stats_row.controls[0].content.controls[1]
+    unread_text  = stats_row.controls[1].content.controls[1]
+    starred_text = stats_row.controls[2].content.controls[1]
+
     def is_moodle(data) -> bool:
-        """
-        判斷是否為 Moodle 信件。
-        gmail_reader.py 的 route_email() 用 sender.lower() 判斷 "moodle"，
-        所以這裡也用同樣邏輯對 sender 判斷，而不是看 AI 回傳的 category。
-        """
         return "moodle" in data['sender'].lower()
 
-    # Map predefined AI categories and routing tags to Flet colors using a dictionary
     def get_tag_color(category: str):
         color_map = {
-            # Moodle Categories
             "作業死線": ft.Colors.ORANGE_700,
             "作業公布": ft.Colors.BLUE_GREY_600,
             "繳交確認": ft.Colors.GREEN_700,
             "成績公布": ft.Colors.BLUE_700,
             "停課通知": ft.Colors.PURPLE_700,
             "考試相關": ft.Colors.RED_700,
-            
-            # General Email Categories
             "重要公告": ft.Colors.RED_700,
             "講座活動": ft.Colors.TEAL_700,
             "一般宣導": ft.Colors.BLUE_400,
-            
-            # Route Email Tags & Errors
             "合作社廣告": ft.Colors.BROWN_500,
             "外部學習": ft.Colors.INDIGO_500,
-            "Analysis Failed": ft.Colors.RED_900
+            "Analysis Failed": ft.Colors.RED_900,
         }
-
-        # Iterate through the dictionary keys to find a match in the category string
         for key, color in color_map.items():
             if key in category:
                 return color
-                
         return ft.Colors.GREY_600
 
     def create_email_card(data):
-        # Determine color of card bg by unread or read
         card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
 
-        # TOP-LEFT：Moodle 用學士帽+文字，其他用寄件人名稱 ──
         if is_moodle(data):
             title_control = ft.Row(
                 controls=[
@@ -96,53 +117,21 @@ def main(page: ft.Page):
             margin=ft.margin.symmetric(horizontal=10, vertical=3),
             content=ft.Container(
                 bgcolor=card_bgcolor,
-                # 右側 padding 縮小，讓按鈕不會離邊緣太遠
                 padding=ft.padding.only(left=15, right=4, top=4, bottom=12),
                 border_radius=10,
                 content=ft.Column(
-                    spacing=8,  # 兩排之間的間距
+                    spacing=8,
                     controls=[
-                        # ── 上排：標題 ＋ 時間＋按鈕 ──
                         ft.Row(
                             controls=[
-                                ft.Container(
-                                    content=title_control,
-                                    expand=True,
-                                ),
+                                ft.Container(content=title_control, expand=True),
                                 ft.Row(
                                     controls=[
-                                        ft.Text(
-                                            data['time'],
-                                            color=ft.Colors.OUTLINE,
-                                            size=12,
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.MARK_EMAIL_READ,
-                                            icon_size=18,
-                                            padding=ft.padding.all(2),
-                                            tooltip="標記已讀",
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.STAR_BORDER,
-                                            icon_size=18,
-                                            padding=ft.padding.all(2),
-                                            icon_color=ft.Colors.YELLOW_600,
-                                            tooltip="加星號",
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.ARCHIVE,
-                                            icon_size=18,
-                                            padding=ft.padding.all(2),
-                                            icon_color=ft.Colors.GREEN_400,
-                                            tooltip="封存",
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.DELETE,
-                                            icon_size=18,
-                                            padding=ft.padding.all(2),
-                                            icon_color=ft.Colors.RED_400,
-                                            tooltip="刪除",
-                                        ),
+                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                        ft.IconButton(icon=ft.Icons.MARK_EMAIL_READ, icon_size=18, padding=ft.padding.all(2), tooltip="標記已讀"),
+                                        ft.IconButton(icon=ft.Icons.STAR_BORDER, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.YELLOW_600, tooltip="加星號"),
+                                        ft.IconButton(icon=ft.Icons.ARCHIVE, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.GREEN_400, tooltip="封存"),
+                                        ft.IconButton(icon=ft.Icons.DELETE, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.RED_400, tooltip="刪除"),
                                     ],
                                     spacing=0,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -151,29 +140,15 @@ def main(page: ft.Page):
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        # ── 下排：分類 tag ＋ 摘要 ──
                         ft.Row(
                             controls=[
                                 ft.Container(
-                                    content=ft.Text(
-                                        data['category'],
-                                        size=11,
-                                        color=ft.Colors.WHITE,
-                                        weight=ft.FontWeight.BOLD,
-                                        no_wrap=True,
-                                    ),
+                                    content=ft.Text(data['category'], size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
                                     bgcolor=get_tag_color(data['category']),
                                     padding=ft.padding.symmetric(horizontal=8, vertical=3),
                                     border_radius=5,
                                 ),
-                                ft.Text(
-                                    data['summary'],
-                                    size=13,
-                                    expand=True,
-                                    color="#bbbbbb",
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                    max_lines=1,
-                                ),
+                                ft.Text(data['summary'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
                             ],
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -192,6 +167,12 @@ def main(page: ft.Page):
         try:
             if not gmail_service:
                 gmail_service = await asyncio.to_thread(get_gmail_service)
+
+            stats = await asyncio.to_thread(get_inbox_stats, gmail_service)
+            inbox_text.value   = str(stats["inbox"])
+            unread_text.value  = str(stats["unread"])
+            starred_text.value = str(stats["starred"])
+            page.update()
 
             email_list_view.controls.clear()
             page.update()
@@ -252,15 +233,25 @@ def main(page: ft.Page):
             expand=True,
             controls=[
                 ft.Row([
-                    ft.Text("Inbox", size=30, weight="bold"),
-                    status_text,
-                    ft.IconButton(
-                        icon=ft.Icons.REFRESH,
-                        icon_color=ft.Colors.BLUE_200,
-                        on_click=on_refresh_click,
-                    )
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(height=20, color="transparent"),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE),
+                                ft.Text("Inbox", size=30, weight="bold"),
+                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            padding=ft.padding.only(left=10, right=10),
+                        ),
+                        stats_row,
+                    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row([
+                        status_text,
+                        ft.IconButton(
+                            icon=ft.Icons.REFRESH,
+                            icon_color=ft.Colors.BLUE_200,
+                            on_click=on_refresh_click,
+                        ),
+                    ], spacing=0),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),ft.Divider(height=20, color="transparent"),
                 email_list_view,
             ]
         )
