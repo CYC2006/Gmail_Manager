@@ -13,7 +13,10 @@ def toggle_star(service, email_id, add_star=True):
     try:
         body = {'addLabelIds': ['STARRED']} if add_star else {'removeLabelIds': ['STARRED']}
         service.users().messages().modify(userId='me', id=email_id, body=body).execute()
-        print(f"⭐ 信件 {email_id} 星號狀態已更新")
+        
+        if add_star: print(f"⭐ 信件 {email_id} 已加上星號狀態")
+        else: print(f"⭐ 信件 {email_id} 已取消星號狀態")
+        
     except Exception as e:
         print(f"❌ 星號更新失敗: {e}")
 

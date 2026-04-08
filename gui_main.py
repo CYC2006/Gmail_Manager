@@ -28,6 +28,8 @@ def main(page: ft.Page):
     email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.padding.only(right=8))
     status_text = ft.Text("", color=ft.Colors.BLUE_200, size=13)
 
+    user_email_text = ft.Text("Loading...", size=12, color=ft.Colors.OUTLINE)
+
     stats_row = ft.Row(
         controls=[
             ft.Container(
@@ -227,6 +229,14 @@ def main(page: ft.Page):
             if not gmail_service:
                 gmail_service = await asyncio.to_thread(get_gmail_service)
 
+                # Get User Gmail: xxxxx@gmail.com
+                try:
+                    profile = await asyncio.to_thread(gmail_service.users().getProfile(userId='me').execute)
+                    user_email_text.value = profile.get('emailAddress', 'Unknown Email')
+                except Exception as e:
+                    print(f"[ERROR] Failed to fetch user profile: {e}")
+                    user_email_text.value = "Offline Mode"
+
             stats = await asyncio.to_thread(get_inbox_stats, gmail_service)
             inbox_text.value   = str(stats["inbox"])
             unread_text.value  = str(stats["unread"])
@@ -274,7 +284,8 @@ def main(page: ft.Page):
     sidebar = ft.Container(
         width=250, bgcolor="#1e1e1e", padding=20,
         content=ft.Column([
-            ft.Text("NCKU Gmail Manager", size=18, weight="bold", color=ft.Colors.BLUE_200),
+            ft.Text("NCKU AInbox", size=26, weight="bold", color=ft.Colors.BLUE_200),
+            user_email_text,
             ft.Divider(height=20),
             ft.ListTile(leading=ft.Icon(ft.Icons.INBOX), title=ft.Text("Inbox"), selected=True),
             ft.ListTile(leading=ft.Icon(ft.Icons.SCHOOL), title=ft.Text("Moodle")),
