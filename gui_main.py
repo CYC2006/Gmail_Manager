@@ -6,7 +6,6 @@ import asyncio
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
-# [CHANGE 1] import email_actions
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
 
 def main(page: ft.Page):
@@ -80,7 +79,7 @@ def main(page: ft.Page):
             "重要公告": ft.Colors.RED_700,
             "講座活動": ft.Colors.TEAL_700,
             "一般宣導": ft.Colors.BLUE_400,
-            "合作社廣告": ft.Colors.BROWN_500,
+            "其他廣告": ft.Colors.BROWN_500,
             "外部學習": ft.Colors.INDIGO_500,
             "Analysis Failed": ft.Colors.RED_900,
         }
@@ -89,26 +88,26 @@ def main(page: ft.Page):
                 return color
         return ft.Colors.GREY_600
 
-    # [CHANGE 2] create_email_card 接收 card 本身的 ref，讓操作後可以移除卡片
     def create_email_card(data):
         card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
         email_id = data['id']
 
+        is_starred_state = [data.get('is_starred', False)]
+
         # [CHANGE 3] 四個按鈕的 handler，操作後同步 Gmail 並更新 UI
         async def on_mark_read(e):
-            # 將卡片背景改為已讀色
             e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
             page.update()
 
             await asyncio.to_thread(mark_as_read, gmail_service, email_id)
 
         async def on_star(e, card_ref):
-            # 星號按鈕變實心表示已加星
-            e.control.icon = ft.Icons.STAR
-            e.control.icon_color = ft.Colors.YELLOW_400
+            is_starred_state[0] = not is_starred_state[0]
+            e.control.icon = ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER
+            e.control.icon_color = ft.Colors.YELLOW_400 if is_starred_state[0] else ft.Colors.YELLOW_600
             page.update()
 
-            await asyncio.to_thread(toggle_star, gmail_service, email_id, True)
+            await asyncio.to_thread(toggle_star, gmail_service, email_id, is_starred_state[0])
 
         async def on_archive(e, card_ref):
             email_list_view.controls.remove(card_ref) # remove from INBOX
@@ -145,7 +144,6 @@ def main(page: ft.Page):
                 max_lines=1,
             )
 
-        # [CHANGE 4] 先建立 card，再把 card 自身傳給需要移除它的 handler
         card = ft.Card(
             margin=ft.margin.symmetric(horizontal=10, vertical=3),
             content=ft.Container(
@@ -169,7 +167,7 @@ def main(page: ft.Page):
                                             on_click=lambda e: page.run_task(on_mark_read, e),
                                         ),
                                         ft.IconButton(
-                                            icon=ft.Icons.STAR_BORDER,
+                                            icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
                                             icon_size=18,
                                             padding=ft.padding.all(2),
                                             icon_color=ft.Colors.YELLOW_600,

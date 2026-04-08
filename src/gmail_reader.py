@@ -87,7 +87,6 @@ def fetch_and_analyze_emails(service):
         try:
             email_id = message["id"]
             
-            # 🛠️ 優化 1：第一階段只抓取輕量的 Metadata (Headers & Labels)
             msg_meta = service.users().messages().get(
                 userId="me", id=email_id, format="metadata",
                 metadataHeaders=["From", "Subject", "Date"]
@@ -95,6 +94,7 @@ def fetch_and_analyze_emails(service):
             
             label_ids = msg_meta.get("labelIds", [])
             is_unread = "UNREAD" in label_ids
+            is_starred = "STARRED" in label_ids
 
             headers = msg_meta.get("payload", {}).get("headers", [])
             sender = "Unknown Sender"
@@ -113,7 +113,7 @@ def fetch_and_analyze_emails(service):
             final_category = initial_tag
             final_summary = subject
             
-            # 檢查快取
+            # check cache
             cached_result = get_cached_result(email_id)
             
             if cached_result:
@@ -150,5 +150,6 @@ def fetch_and_analyze_emails(service):
             "time": receive_time[:16],
             "category": final_category,
             "summary": final_summary,
-            "is_unread": is_unread
+            "is_unread": is_unread,
+            "is_starred": is_starred
         }
