@@ -6,6 +6,8 @@ import asyncio
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
+# [CHANGE 1] import email_actions
+from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
 
 def main(page: ft.Page):
     # ==========================
@@ -87,8 +89,38 @@ def main(page: ft.Page):
                 return color
         return ft.Colors.GREY_600
 
+    # [CHANGE 2] create_email_card 接收 card 本身的 ref，讓操作後可以移除卡片
     def create_email_card(data):
         card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
+        email_id = data['id']
+
+        # [CHANGE 3] 四個按鈕的 handler，操作後同步 Gmail 並更新 UI
+        async def on_mark_read(e):
+            # 將卡片背景改為已讀色
+            e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
+            page.update()
+
+            await asyncio.to_thread(mark_as_read, gmail_service, email_id)
+
+        async def on_star(e, card_ref):
+            # 星號按鈕變實心表示已加星
+            e.control.icon = ft.Icons.STAR
+            e.control.icon_color = ft.Colors.YELLOW_400
+            page.update()
+
+            await asyncio.to_thread(toggle_star, gmail_service, email_id, True)
+
+        async def on_archive(e, card_ref):
+            email_list_view.controls.remove(card_ref) # remove from INBOX
+            page.update()
+
+            await asyncio.to_thread(archive_email, gmail_service, email_id)
+
+        async def on_trash(e, card_ref):
+            email_list_view.controls.remove(card_ref) # remove from INBOX
+            page.update()
+
+            await asyncio.to_thread(trash_email, gmail_service, email_id)
 
         if is_moodle(data):
             title_control = ft.Row(
@@ -113,7 +145,8 @@ def main(page: ft.Page):
                 max_lines=1,
             )
 
-        return ft.Card(
+        # [CHANGE 4] 先建立 card，再把 card 自身傳給需要移除它的 handler
+        card = ft.Card(
             margin=ft.margin.symmetric(horizontal=10, vertical=3),
             content=ft.Container(
                 bgcolor=card_bgcolor,
@@ -128,10 +161,37 @@ def main(page: ft.Page):
                                 ft.Row(
                                     controls=[
                                         ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                        ft.IconButton(icon=ft.Icons.MARK_EMAIL_READ, icon_size=18, padding=ft.padding.all(2), tooltip="標記已讀"),
-                                        ft.IconButton(icon=ft.Icons.STAR_BORDER, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.YELLOW_600, tooltip="加星號"),
-                                        ft.IconButton(icon=ft.Icons.ARCHIVE, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.GREEN_400, tooltip="封存"),
-                                        ft.IconButton(icon=ft.Icons.DELETE, icon_size=18, padding=ft.padding.all(2), icon_color=ft.Colors.RED_400, tooltip="刪除"),
+                                        ft.IconButton(
+                                            icon=ft.Icons.MARK_EMAIL_READ,
+                                            icon_size=18,
+                                            padding=ft.padding.all(2),
+                                            tooltip="標記已讀",
+                                            on_click=lambda e: page.run_task(on_mark_read, e),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.STAR_BORDER,
+                                            icon_size=18,
+                                            padding=ft.padding.all(2),
+                                            icon_color=ft.Colors.YELLOW_600,
+                                            tooltip="加星號",
+                                            on_click=lambda e: page.run_task(on_star, e, card),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.ARCHIVE,
+                                            icon_size=18,
+                                            padding=ft.padding.all(2),
+                                            icon_color=ft.Colors.GREEN_400,
+                                            tooltip="封存",
+                                            on_click=lambda e: page.run_task(on_archive, e, card),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE,
+                                            icon_size=18,
+                                            padding=ft.padding.all(2),
+                                            icon_color=ft.Colors.RED_400,
+                                            tooltip="刪除",
+                                            on_click=lambda e: page.run_task(on_trash, e, card),
+                                        ),
                                     ],
                                     spacing=0,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -143,7 +203,7 @@ def main(page: ft.Page):
                         ft.Row(
                             controls=[
                                 ft.Container(
-                                    content=ft.Text(data['category'], size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
+                                    content=ft.Text(data['category'], size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
                                     bgcolor=get_tag_color(data['category']),
                                     padding=ft.padding.symmetric(horizontal=8, vertical=3),
                                     border_radius=5,
@@ -157,6 +217,7 @@ def main(page: ft.Page):
                 ),
             ),
         )
+        return card
 
     # ==========================
     # 3. Core Logic
@@ -251,7 +312,8 @@ def main(page: ft.Page):
                             on_click=on_refresh_click,
                         ),
                     ], spacing=0),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),ft.Divider(height=20, color="transparent"),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Divider(height=20, color="transparent"),
                 email_list_view,
             ]
         )
