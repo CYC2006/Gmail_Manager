@@ -1,6 +1,7 @@
 import flet as ft
 import os
 import sys
+import ssl
 import asyncio
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -19,9 +20,15 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
 
-    gmail_service = None
+    svc = {"service": None}   # mutable holder so all closures can rebuild the service on SSL error
     all_emails = []
+    shown_email_ids = set()   # IDs of emails currently rendered in email_list_view
     current_view = ["inbox"]  # mutable container for nonlocal-like access
+    fetch_gen = [0]           # increments on every refresh to cancel stale background tasks
+    ui_lock = asyncio.Lock()  # prevents background fetch and user actions from modifying the list simultaneously
+
+    PAGE_SIZE = 50
+    MAX_PAGES = 5             # max pages fetched in background (1 page = 50 emails)
 
     # ==========================
     # 2. UI Components
@@ -98,32 +105,46 @@ def main(page: ft.Page):
 
         is_starred_state = [data.get('is_starred', False)]
 
-        # [CHANGE 3] 四個按鈕的 handler，操作後同步 Gmail 並更新 UI
+        async def _call_with_ssl_retry(fn, *args):
+            """Call a Gmail API function, rebuilding the service once on SSL error."""
+            try:
+                await asyncio.to_thread(fn, svc["service"], *args)
+            except (ssl.SSLError, OSError) as ex:
+                if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
+                    raise
+                print(f"[SSL] Connection stale, rebuilding service and retrying... ({ex})")
+                svc["service"] = await asyncio.to_thread(get_gmail_service)
+                await asyncio.to_thread(fn, svc["service"], *args)
+
         async def on_mark_read(e):
             e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
             page.update()
-
-            await asyncio.to_thread(mark_as_read, gmail_service, email_id)
+            await _call_with_ssl_retry(mark_as_read, email_id)
 
         async def on_star(e, card_ref):
             is_starred_state[0] = not is_starred_state[0]
             e.control.icon = ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER
             e.control.icon_color = ft.Colors.YELLOW_400 if is_starred_state[0] else ft.Colors.YELLOW_600
             page.update()
-
-            await asyncio.to_thread(toggle_star, gmail_service, email_id, is_starred_state[0])
+            await _call_with_ssl_retry(toggle_star, email_id, is_starred_state[0])
 
         async def on_archive(e, card_ref):
-            email_list_view.controls.remove(card_ref) # remove from INBOX
+            async with ui_lock:
+                email_list_view.controls.remove(card_ref)
+                shown_email_ids.discard(email_id)
+                all_emails[:] = [item for item in all_emails if item['id'] != email_id]
+                fill_next_email()
             page.update()
-
-            await asyncio.to_thread(archive_email, gmail_service, email_id)
+            await _call_with_ssl_retry(archive_email, email_id)
 
         async def on_trash(e, card_ref):
-            email_list_view.controls.remove(card_ref) # remove from INBOX
+            async with ui_lock:
+                email_list_view.controls.remove(card_ref)
+                shown_email_ids.discard(email_id)
+                all_emails[:] = [item for item in all_emails if item['id'] != email_id]
+                fill_next_email()
             page.update()
-
-            await asyncio.to_thread(trash_email, gmail_service, email_id)
+            await _call_with_ssl_retry(trash_email, email_id)
 
         if is_moodle(data):
             title_control = ft.Row(
@@ -225,13 +246,35 @@ def main(page: ft.Page):
     # 3. Core Logic
     # ==========================
 
+    def _matches_view(data) -> bool:
+        """Returns True if the email should appear in the current view."""
+        if current_view[0] == "moodle":
+            return is_moodle(data)
+        return True  # inbox shows everything
+
     def render_current_view():
+        """Rebuild the visible list from all_emails, up to PAGE_SIZE."""
         email_list_view.controls.clear()
+        shown_email_ids.clear()
         for data in all_emails:
-            if current_view[0] == "moodle" and not is_moodle(data):
+            if len(shown_email_ids) >= PAGE_SIZE:
+                break
+            if not _matches_view(data):
                 continue
             email_list_view.controls.append(create_email_card(data))
+            shown_email_ids.add(data['id'])
         page.update()
+
+    def fill_next_email():
+        """After a card is removed, fill the empty slot with the next buffered email."""
+        for data in all_emails:
+            if data['id'] in shown_email_ids:
+                continue
+            if not _matches_view(data):
+                continue
+            email_list_view.controls.append(create_email_card(data))
+            shown_email_ids.add(data['id'])
+            return
 
     def switch_view(view: str):
         current_view[0] = view
@@ -250,44 +293,94 @@ def main(page: ft.Page):
 
         render_current_view()
 
-    async def fetch_task():
-        nonlocal gmail_service
+    def get_next(gen):
         try:
-            if not gmail_service:
-                gmail_service = await asyncio.to_thread(get_gmail_service)
+            return next(gen)
+        except StopIteration:
+            return None
+
+    def append_email_to_view(email_data):
+        """Append one email card if it matches the view and the page isn't full yet."""
+        if len(shown_email_ids) >= PAGE_SIZE:
+            return  # page is full — keep in all_emails as buffer only
+        if email_data['id'] in shown_email_ids:
+            return
+        if _matches_view(email_data):
+            email_list_view.controls.append(create_email_card(email_data))
+            shown_email_ids.add(email_data['id'])
+
+    async def background_fetch_task(token, gen_id, page_num=2):
+        """Silently fetches subsequent pages up to MAX_PAGES and appends to all_emails."""
+        if page_num > MAX_PAGES:
+            status_text.value = ""
+            page.update()
+            return
+        try:
+            status_text.value = f"載入更多... ({page_num}/{MAX_PAGES})"
+            page.update()
+
+            gen = fetch_and_analyze_emails(svc["service"], page_token=token)
+            while True:
+                if fetch_gen[0] != gen_id:   # refresh was clicked — abort
+                    return
+                email_data = await asyncio.to_thread(get_next, gen)
+                if email_data is None:
+                    break
+                if "_next_page_token" in email_data:
+                    page.run_task(background_fetch_task, email_data["_next_page_token"], gen_id, page_num + 1)
+                    return
+                async with ui_lock:
+                    all_emails.append(email_data)
+                    append_email_to_view(email_data)
+                page.update()
+                await asyncio.sleep(0)
+
+            if fetch_gen[0] == gen_id:
+                status_text.value = ""
+                page.update()
+
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+            if fetch_gen[0] == gen_id:
+                status_text.value = f"背景載入失敗：{str(ex)}"
+                page.update()
+
+    async def fetch_task():
+        this_gen = fetch_gen[0]
+        try:
+            if not svc["service"]:
+                svc["service"] = await asyncio.to_thread(get_gmail_service)
 
                 # Get User Gmail: xxxxx@gmail.com
                 try:
-                    profile = await asyncio.to_thread(gmail_service.users().getProfile(userId='me').execute)
+                    profile = await asyncio.to_thread(svc["service"].users().getProfile(userId='me').execute)
                     user_email_text.value = profile.get('emailAddress', 'Unknown Email')
                 except Exception as e:
                     print(f"[ERROR] Failed to fetch user profile: {e}")
                     user_email_text.value = "Offline Mode"
 
-            stats = await asyncio.to_thread(get_inbox_stats, gmail_service)
+            stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
             inbox_text.value   = str(stats["inbox"])
             unread_text.value  = str(stats["unread"])
             starred_text.value = str(stats["starred"])
             page.update()
 
             all_emails.clear()
+            shown_email_ids.clear()
             email_list_view.controls.clear()
             page.update()
 
-            def get_next(gen):
-                try:
-                    return next(gen)
-                except StopIteration:
-                    return None
-
-            gen = fetch_and_analyze_emails(gmail_service)
+            gen = fetch_and_analyze_emails(svc["service"])
             while True:
                 email_data = await asyncio.to_thread(get_next, gen)
                 if email_data is None:
                     break
+                if "_next_page_token" in email_data:
+                    page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
+                    return
                 all_emails.append(email_data)
-                if current_view[0] == "inbox" or (current_view[0] == "moodle" and is_moodle(email_data)):
-                    email_list_view.controls.append(create_email_card(email_data))
+                append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
 
@@ -301,7 +394,7 @@ def main(page: ft.Page):
             page.update()
 
     def on_refresh_click(e):
-        nonlocal gmail_service
+        fetch_gen[0] += 1   # invalidate any running background tasks
         email_list_view.controls.clear()
         status_text.value = "Loading..."
         page.update()
@@ -357,7 +450,7 @@ def main(page: ft.Page):
                                 (header_icon := ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)),
                                 (header_title := ft.Text("Inbox", size=30, weight="bold")),
                             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            padding=ft.padding.only(left=10, right=10),
+                            padding=ft.Padding.only(left=10, right=10),
                         ),
                         stats_row,
                     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),

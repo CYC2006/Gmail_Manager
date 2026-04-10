@@ -129,11 +129,17 @@ def get_inbox_stats(service):
 
 
 # Generator version: yields one email dict at a time as each is processed.
-def fetch_and_analyze_emails(service):
+# Pass page_token to fetch a specific page (used for background pagination).
+# Yields a {"_next_page_token": "..."} sentinel at the end if more pages exist.
+def fetch_and_analyze_emails(service, page_token=None):
     init_db()
-    print("[SYSTEM] Fetching the latest 20 unread emails for GUI...")
-    
-    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=MAX_RESULTS).execute()
+    print(f"[SYSTEM] Fetching emails (page_token={page_token or 'first page'})...")
+
+    list_kwargs = {"userId": "me", "q": "is:inbox", "maxResults": MAX_RESULTS}
+    if page_token:
+        list_kwargs["pageToken"] = page_token
+
+    results = service.users().messages().list(**list_kwargs).execute()
     messages = results.get("messages", [])
 
     if not messages:
@@ -210,3 +216,8 @@ def fetch_and_analyze_emails(service):
             "is_unread": is_unread,
             "is_starred": is_starred
         }
+
+    # If Gmail says there are more pages, yield a sentinel so the caller can chain
+    next_token = results.get("nextPageToken")
+    if next_token:
+        yield {"_next_page_token": next_token}
