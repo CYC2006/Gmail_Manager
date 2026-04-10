@@ -12,6 +12,8 @@ from src.db_manager import init_db, get_cached_result, save_analysis
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
+# Max mail count per page
+MAX_RESULTS = 50
 
 # ──────────────────────────────────────────────
 # Rule-based keyword classifiers (no AI needed)
@@ -131,7 +133,7 @@ def fetch_and_analyze_emails(service):
     init_db()
     print("[SYSTEM] Fetching the latest 20 unread emails for GUI...")
     
-    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=20).execute()
+    results = service.users().messages().list(userId="me", q="is:inbox", maxResults=MAX_RESULTS).execute()
     messages = results.get("messages", [])
 
     if not messages:

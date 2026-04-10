@@ -20,6 +20,8 @@ def main(page: ft.Page):
     page.padding = 0
 
     gmail_service = None
+    all_emails = []
+    current_view = ["inbox"]  # mutable container for nonlocal-like access
 
     # ==========================
     # 2. UI Components
@@ -38,7 +40,7 @@ def main(page: ft.Page):
                     ft.Text("--", size=12, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 tooltip="Inbox 總數",
             ),
             ft.Container(
@@ -47,7 +49,7 @@ def main(page: ft.Page):
                     ft.Text("--", size=12, color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 tooltip="未讀數",
             ),
             ft.Container(
@@ -56,7 +58,7 @@ def main(page: ft.Page):
                     ft.Text("--", size=12, color=ft.Colors.YELLOW_600, weight=ft.FontWeight.BOLD),
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 tooltip="星號數",
             ),
         ],
@@ -147,10 +149,10 @@ def main(page: ft.Page):
             )
 
         card = ft.Card(
-            margin=ft.margin.symmetric(horizontal=10, vertical=3),
+            margin=ft.Margin.symmetric(horizontal=10, vertical=3),
             content=ft.Container(
                 bgcolor=card_bgcolor,
-                padding=ft.padding.only(left=15, right=4, top=4, bottom=12),
+                padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
                 border_radius=10,
                 content=ft.Column(
                     spacing=8,
@@ -164,14 +166,14 @@ def main(page: ft.Page):
                                         ft.IconButton(
                                             icon=ft.Icons.MARK_EMAIL_READ,
                                             icon_size=18,
-                                            padding=ft.padding.all(2),
+                                            padding=ft.Padding.all(2),
                                             tooltip="標記已讀",
                                             on_click=lambda e: page.run_task(on_mark_read, e),
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
                                             icon_size=18,
-                                            padding=ft.padding.all(2),
+                                            padding=ft.Padding.all(2),
                                             icon_color=ft.Colors.YELLOW_600,
                                             tooltip="加星號",
                                             on_click=lambda e: page.run_task(on_star, e, card),
@@ -179,7 +181,7 @@ def main(page: ft.Page):
                                         ft.IconButton(
                                             icon=ft.Icons.ARCHIVE,
                                             icon_size=18,
-                                            padding=ft.padding.all(2),
+                                            padding=ft.Padding.all(2),
                                             icon_color=ft.Colors.GREEN_400,
                                             tooltip="封存",
                                             on_click=lambda e: page.run_task(on_archive, e, card),
@@ -187,7 +189,7 @@ def main(page: ft.Page):
                                         ft.IconButton(
                                             icon=ft.Icons.DELETE,
                                             icon_size=18,
-                                            padding=ft.padding.all(2),
+                                            padding=ft.Padding.all(2),
                                             icon_color=ft.Colors.RED_400,
                                             tooltip="刪除",
                                             on_click=lambda e: page.run_task(on_trash, e, card),
@@ -205,7 +207,7 @@ def main(page: ft.Page):
                                 ft.Container(
                                     content=ft.Text(data['category'], size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
                                     bgcolor=get_tag_color(data['category']),
-                                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                                     border_radius=5,
                                 ),
                                 ft.Text(data['summary'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
@@ -222,6 +224,31 @@ def main(page: ft.Page):
     # ==========================
     # 3. Core Logic
     # ==========================
+
+    def render_current_view():
+        email_list_view.controls.clear()
+        for data in all_emails:
+            if current_view[0] == "moodle" and not is_moodle(data):
+                continue
+            email_list_view.controls.append(create_email_card(data))
+        page.update()
+
+    def switch_view(view: str):
+        current_view[0] = view
+
+        # Update sidebar selection
+        for tile, name in sidebar_tiles:
+            tile.selected = (name == view)
+
+        # Update header
+        if view == "inbox":
+            header_icon.name = ft.Icons.INBOX
+            header_title.value = "Inbox"
+        elif view == "moodle":
+            header_icon.name = ft.Icons.SCHOOL
+            header_title.value = "Moodle"
+
+        render_current_view()
 
     async def fetch_task():
         nonlocal gmail_service
@@ -243,6 +270,7 @@ def main(page: ft.Page):
             starred_text.value = str(stats["starred"])
             page.update()
 
+            all_emails.clear()
             email_list_view.controls.clear()
             page.update()
 
@@ -257,7 +285,9 @@ def main(page: ft.Page):
                 email_data = await asyncio.to_thread(get_next, gen)
                 if email_data is None:
                     break
-                email_list_view.controls.append(create_email_card(email_data))
+                all_emails.append(email_data)
+                if current_view[0] == "inbox" or (current_view[0] == "moodle" and is_moodle(email_data)):
+                    email_list_view.controls.append(create_email_card(email_data))
                 page.update()
                 await asyncio.sleep(0)
 
@@ -281,19 +311,37 @@ def main(page: ft.Page):
     # 4. Layout Assembly
     # ==========================
 
+    tile_inbox = ft.ListTile(
+        leading=ft.Icon(ft.Icons.INBOX), title=ft.Text("Inbox"), selected=True,
+        on_click=lambda e: switch_view("inbox"),
+    )
+    tile_moodle = ft.ListTile(
+        leading=ft.Icon(ft.Icons.SCHOOL), title=ft.Text("Moodle"),
+        on_click=lambda e: switch_view("moodle"),
+    )
+    tile_announcements = ft.ListTile(leading=ft.Icon(ft.Icons.CAMPAIGN), title=ft.Text("Announcements"))
+    tile_sent          = ft.ListTile(leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"))
+    tile_all           = ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"))
+    tile_trash         = ft.ListTile(leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"))
+
+    sidebar_tiles = [
+        (tile_inbox, "inbox"),
+        (tile_moodle, "moodle"),
+    ]
+
     sidebar = ft.Container(
         width=250, bgcolor="#1e1e1e", padding=20,
         content=ft.Column([
             ft.Text("NCKU AInbox", size=26, weight="bold", color=ft.Colors.BLUE_200),
             user_email_text,
             ft.Divider(height=20),
-            ft.ListTile(leading=ft.Icon(ft.Icons.INBOX), title=ft.Text("Inbox"), selected=True),
-            ft.ListTile(leading=ft.Icon(ft.Icons.SCHOOL), title=ft.Text("Moodle")),
-            ft.ListTile(leading=ft.Icon(ft.Icons.CAMPAIGN), title=ft.Text("Announcements")),
+            tile_inbox,
+            tile_moodle,
+            tile_announcements,
             ft.Divider(height=20),
-            ft.ListTile(leading=ft.Icon(ft.Icons.SEND), title=ft.Text("Sent")),
-            ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails")),
-            ft.ListTile(leading=ft.Icon(ft.Icons.DELETE), title=ft.Text("Trash")),
+            tile_sent,
+            tile_all,
+            tile_trash,
         ])
     )
 
@@ -306,8 +354,8 @@ def main(page: ft.Page):
                     ft.Row([
                         ft.Container(
                             content=ft.Row([
-                                ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE),
-                                ft.Text("Inbox", size=30, weight="bold"),
+                                (header_icon := ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)),
+                                (header_title := ft.Text("Inbox", size=30, weight="bold")),
                             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=ft.padding.only(left=10, right=10),
                         ),
