@@ -128,9 +128,51 @@ def get_inbox_stats(service):
         return {"inbox": 0, "unread": 0, "starred": 0}
 
 
+def _batch_fetch_metadata(service, message_ids):
+    """Fetch metadata for all emails in one HTTP batch request instead of N separate calls."""
+    meta_map = {}
+
+    def handle_response(request_id, response, exception):
+        if exception is None:
+            meta_map[request_id] = response
+        else:
+            print(f"[BATCH] Metadata fetch failed for {request_id}: {exception}")
+
+    batch = service.new_batch_http_request(callback=handle_response)
+    for msg_id in message_ids:
+        batch.add(
+            service.users().messages().get(
+                userId="me", id=msg_id, format="metadata",
+                metadataHeaders=["From", "Subject", "Date"]
+            ),
+            request_id=msg_id
+        )
+    batch.execute()
+    return meta_map
+
+
+def _parse_meta(msg_meta):
+    """Extract sender, subject, receive_time, is_unread, is_starred from a metadata response."""
+    label_ids = msg_meta.get("labelIds", [])
+    headers = msg_meta.get("payload", {}).get("headers", [])
+    sender, subject, receive_time = "Unknown Sender", "No Subject", "Unknown Time"
+    for h in headers:
+        if h["name"] == "From":
+            sender = h["value"].split('<')[0].strip().strip('"').strip('\u201c').strip('\u201d').strip()
+        elif h["name"] == "Subject":
+            subject = h["value"]
+        elif h["name"] == "Date":
+            receive_time = h["value"]
+    return sender, subject, receive_time, "UNREAD" in label_ids, "STARRED" in label_ids
+
+
 # Generator version: yields one email dict at a time as each is processed.
 # Pass page_token to fetch a specific page (used for background pagination).
 # Yields a {"_next_page_token": "..."} sentinel at the end if more pages exist.
+#
+# Two-pass strategy for speed:
+#   Pass 1 — yield cached + rule-based emails immediately (near-instant)
+#   Pass 2 — process emails that need AI analysis (slower, but don't block pass 1)
 def fetch_and_analyze_emails(service, page_token=None):
     init_db()
     print(f"[SYSTEM] Fetching emails (page_token={page_token or 'first page'})...")
@@ -143,79 +185,73 @@ def fetch_and_analyze_emails(service, page_token=None):
     messages = results.get("messages", [])
 
     if not messages:
-        print("[SYSTEM] No unread messages found.")
+        print("[SYSTEM] No messages found.")
         return
-    
-    for message in messages:
+
+    # Single batch request replaces N individual metadata API calls
+    print(f"[SYSTEM] Batch fetching metadata for {len(messages)} emails...")
+    meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
+
+    ai_queue = []  # (index, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail)
+
+    # ── Pass 1: yield cached and rule-classified emails immediately ──
+    for i, message in enumerate(messages):
         try:
             email_id = message["id"]
-            
-            msg_meta = service.users().messages().get(
-                userId="me", id=email_id, format="metadata",
-                metadataHeaders=["From", "Subject", "Date"]
-            ).execute()
-            
-            label_ids = msg_meta.get("labelIds", [])
-            is_unread = "UNREAD" in label_ids
-            is_starred = "STARRED" in label_ids
+            msg_meta = meta_map.get(email_id)
+            if not msg_meta:
+                continue
 
-            headers = msg_meta.get("payload", {}).get("headers", [])
-            sender = "Unknown Sender"
-            subject = "No Subject"
-            receive_time = "Unknown Time"
-            
-            for header in headers:
-                if header["name"] == "From":
-                    sender = header["value"].split('<')[0].strip().strip('"').strip('\u201c').strip('\u201d').strip()
-                elif header["name"] == "Subject":
-                    subject = header["value"]
-                elif header["name"] == "Date":
-                    receive_time = header["value"]
-
+            sender, subject, receive_time, is_unread, is_starred = _parse_meta(msg_meta)
             initial_tag, needs_ai, is_moodle_mail = route_email(sender, subject)
-            final_category = initial_tag
-            final_summary = subject  # default: use subject when AI is skipped
 
-            # check cache
-            cached_result = get_cached_result(email_id)
-
-            if cached_result:
+            cached = get_cached_result(email_id)
+            if cached:
                 print(f"[CACHE] Loaded: {subject[:20]}...")
-                final_category = cached_result.get('category')
-                final_summary = cached_result.get('summary')
-            elif needs_ai:
-                # Only download full payload when AI analysis is actually needed
-                msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
-                email_body = get_email_body(msg_full.get("payload", {}))
-
-                if len(email_body) > 20:
-                    print(f"[AI] Analyzing: {subject[:20]}...")
-                    ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
-
-                    if ai_result.get('category') != "⚠️ Analysis Failed":
-                        final_category = ai_result.get('category')
-                        final_summary = ai_result.get('summary')
-                        ai_result["sender"] = sender
-                        ai_result["time"] = receive_time
-                        save_analysis(email_id, ai_result)
-                    else:
-                        print(f"⚠️ Analysis failed for {email_id}")
-            else:
+                yield {
+                    "id": email_id, "sender": sender, "time": receive_time[:16],
+                    "category": cached.get('category'), "summary": cached.get('summary'),
+                    "is_unread": is_unread, "is_starred": is_starred, "_index": i
+                }
+            elif not needs_ai:
                 print(f"[RULES] Classified: {subject[:20]}... → {initial_tag}")
+                yield {
+                    "id": email_id, "sender": sender, "time": receive_time[:16],
+                    "category": initial_tag, "summary": subject,
+                    "is_unread": is_unread, "is_starred": is_starred, "_index": i
+                }
+            else:
+                ai_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail))
 
         except Exception as error:
-            print(f"[ERROR] Failed to process email {message['id']}: {error}")
-            continue
+            print(f"[ERROR] Pass 1 failed for {message['id']}: {error}")
 
-        yield {
-            "id": email_id,
-            "sender": sender,
-            "time": receive_time[:16],
-            "category": final_category,
-            "summary": final_summary,
-            "is_unread": is_unread,
-            "is_starred": is_starred
-        }
+    # ── Pass 2: process emails that need AI (yields after each AI call) ──
+    for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail in ai_queue:
+        try:
+            msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
+            email_body = get_email_body(msg_full.get("payload", {}))
+
+            final_category, final_summary = "🔄 等待 AI 分類", subject
+            if len(email_body) > 20:
+                print(f"[AI] Analyzing: {subject[:20]}...")
+                ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
+                if ai_result.get('category') != "⚠️ Analysis Failed":
+                    final_category = ai_result.get('category')
+                    final_summary  = ai_result.get('summary')
+                    ai_result["sender"] = sender
+                    ai_result["time"]   = receive_time
+                    save_analysis(email_id, ai_result)
+                else:
+                    print(f"⚠️ Analysis failed for {email_id}")
+
+            yield {
+                "id": email_id, "sender": sender, "time": receive_time[:16],
+                "category": final_category, "summary": final_summary,
+                "is_unread": is_unread, "is_starred": is_starred, "_index": i
+            }
+        except Exception as error:
+            print(f"[ERROR] Pass 2 AI failed for {email_id}: {error}")
 
     # If Gmail says there are more pages, yield a sentinel so the caller can chain
     next_token = results.get("nextPageToken")

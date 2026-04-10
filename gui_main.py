@@ -22,7 +22,7 @@ def main(page: ft.Page):
 
     svc = {"service": None}   # mutable holder so all closures can rebuild the service on SSL error
     all_emails = []
-    shown_email_ids = set()   # IDs of emails currently rendered in email_list_view
+    shown_email_ids = {}      # {email_id: _index} — tracks rendered emails and their inbox position
     current_view = ["inbox"]  # mutable container for nonlocal-like access
     fetch_gen = [0]           # increments on every refresh to cancel stale background tasks
     ui_lock = asyncio.Lock()  # prevents background fetch and user actions from modifying the list simultaneously
@@ -131,7 +131,7 @@ def main(page: ft.Page):
         async def on_archive(e, card_ref):
             async with ui_lock:
                 email_list_view.controls.remove(card_ref)
-                shown_email_ids.discard(email_id)
+                shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
             page.update()
@@ -140,7 +140,7 @@ def main(page: ft.Page):
         async def on_trash(e, card_ref):
             async with ui_lock:
                 email_list_view.controls.remove(card_ref)
-                shown_email_ids.discard(email_id)
+                shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
             page.update()
@@ -253,7 +253,7 @@ def main(page: ft.Page):
         return True  # inbox shows everything
 
     def render_current_view():
-        """Rebuild the visible list from all_emails, up to PAGE_SIZE."""
+        """Rebuild the visible list from all_emails (sorted by _index), up to PAGE_SIZE."""
         email_list_view.controls.clear()
         shown_email_ids.clear()
         for data in all_emails:
@@ -262,7 +262,7 @@ def main(page: ft.Page):
             if not _matches_view(data):
                 continue
             email_list_view.controls.append(create_email_card(data))
-            shown_email_ids.add(data['id'])
+            shown_email_ids[data['id']] = data.get('_index', float('inf'))
         page.update()
 
     def fill_next_email():
@@ -273,7 +273,7 @@ def main(page: ft.Page):
             if not _matches_view(data):
                 continue
             email_list_view.controls.append(create_email_card(data))
-            shown_email_ids.add(data['id'])
+            shown_email_ids[data['id']] = data.get('_index', float('inf'))
             return
 
     def switch_view(view: str):
@@ -299,15 +299,28 @@ def main(page: ft.Page):
         except StopIteration:
             return None
 
+    def _insert_email_sorted(email_data):
+        """Insert email into all_emails maintaining _index order."""
+        new_idx = email_data.get('_index', float('inf'))
+        for i, e in enumerate(all_emails):
+            if e.get('_index', float('inf')) > new_idx:
+                all_emails.insert(i, email_data)
+                return
+        all_emails.append(email_data)
+
     def append_email_to_view(email_data):
-        """Append one email card if it matches the view and the page isn't full yet."""
+        """Insert one email card at the correct inbox position if the view isn't full yet."""
         if len(shown_email_ids) >= PAGE_SIZE:
             return  # page is full — keep in all_emails as buffer only
         if email_data['id'] in shown_email_ids:
             return
-        if _matches_view(email_data):
-            email_list_view.controls.append(create_email_card(email_data))
-            shown_email_ids.add(email_data['id'])
+        if not _matches_view(email_data):
+            return
+        new_idx = email_data.get('_index', float('inf'))
+        # Find insertion position: count shown emails with a smaller inbox index
+        position = sum(1 for idx in shown_email_ids.values() if idx < new_idx)
+        email_list_view.controls.insert(position, create_email_card(email_data))
+        shown_email_ids[email_data['id']] = new_idx
 
     async def background_fetch_task(token, gen_id, page_num=2):
         """Silently fetches subsequent pages up to MAX_PAGES and appends to all_emails."""
@@ -316,9 +329,6 @@ def main(page: ft.Page):
             page.update()
             return
         try:
-            status_text.value = f"載入更多... ({page_num}/{MAX_PAGES})"
-            page.update()
-
             gen = fetch_and_analyze_emails(svc["service"], page_token=token)
             while True:
                 if fetch_gen[0] != gen_id:   # refresh was clicked — abort
@@ -330,7 +340,7 @@ def main(page: ft.Page):
                     page.run_task(background_fetch_task, email_data["_next_page_token"], gen_id, page_num + 1)
                     return
                 async with ui_lock:
-                    all_emails.append(email_data)
+                    _insert_email_sorted(email_data)
                     append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
@@ -379,7 +389,7 @@ def main(page: ft.Page):
                 if "_next_page_token" in email_data:
                     page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
                     return
-                all_emails.append(email_data)
+                _insert_email_sorted(email_data)
                 append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
