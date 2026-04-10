@@ -40,7 +40,7 @@ Pick exactly ONE category from this list (copy the label exactly as written):
 Return this JSON schema:
 {
   "category": "<exact label from the list above>",
-  "summary": "<one concise English sentence: which course + what happened, e.g. 'Data Structures: HW3 deadline reminder'>",
+  "summary": "<一句繁體中文摘要，說明哪個課程發生什麼事，例如「資料結構：HW3 截止提醒」>",
   "event_time": "<deadline or exam time in YYYY-MM-DD_HH:MM format, or null>",
   "action_required": "<what the student should do, in English, or null>"
 }"""
@@ -67,7 +67,7 @@ Pick exactly ONE category from this list (copy the label exactly as written):
 Return this JSON schema:
 {
   "category": "<exact label from the list above>",
-  "summary": "<one concise English sentence describing the topic, e.g. 'Rock-climbing fitness workshop series'>",
+  "summary": "<一句繁體中文摘要，說明這封信的主旨，例如「體能與抱石系列課程」>",
   "event_time": "<event time in YYYY-MM-DD_HH:MM format, or a range YYYY-MM-DD_HH:MM ~ YYYY-MM-DD_HH:MM, or null>",
   "action_required": "<what the student should do, in English, or null>"
 }"""
