@@ -25,24 +25,24 @@ def _classify_moodle_by_subject(subject):
     s = subject.lower()
     # Deadline / due date reminders
     if any(k in subject for k in ["截止", "Due", "due", "期限", "deadline", "Deadline"]):
-        return "💀 作業死線", False
+        return "作業死線", False
     # Grade released
     if any(k in subject for k in ["成績", "grade", "Grade", "分數"]):
-        return "💯 成績公布", False
+        return "成績公布", False
     # Submission confirmed
     if any(k in subject for k in ["繳交確認", "submission received", "Submission received"]):
-        return "✅ 繳交確認", False
+        return "繳交確認", False
     # Class cancelled
     if any(k in subject for k in ["停課", "取消上課", "cancel class", "Cancel class"]):
-        return "🛑 停課通知", False
+        return "停課通知", False
     # Exam related
     if any(k in subject for k in ["考試", "期中", "期末", "小考", "quiz", "Quiz", "exam", "Exam", "midterm", "Midterm", "final", "Final"]):
-        return "📝 考試相關", False
+        return "考試相關", False
     # New assignment published
     if any(k in subject for k in ["作業", "homework", "Homework", "assignment", "Assignment", "繳交", "上傳"]):
-        return "📝 作業公布", False
+        return "作業公布", False
     # Fall back to AI for anything else
-    return "🔄 等待 AI 分類", True
+    return "等待 AI 分類", True
 
 
 def _classify_school_by_subject(subject):
@@ -50,16 +50,16 @@ def _classify_school_by_subject(subject):
     # Lectures / events (sign-up required)
     if any(k in subject for k in ["講座", "演講", "說明會", "工作坊", "workshop", "Workshop",
                                    "論壇", "研討會", "表演", "音樂會", "競賽", "活動報名"]):
-        return "🎉 講座活動", False
+        return "講座活動", False
     # Important announcements affecting student rights
     if any(k in subject for k in ["停電", "停水", "選課", "繳費", "系統維護", "系統停機",
                                    "重要通知", "緊急", "公告", "異動", "停辦"]):
-        return "📌 重要公告", False
+        return "重要公告", False
     # General non-mandatory notices
     if any(k in subject for k in ["問卷", "填寫", "宣導", "通知", "出刊", "電子報", "節能", "防疫"]):
-        return "📢 一般宣導", False
+        return "一般宣導", False
     # Uncertain — let AI decide
-    return "🔄 等待 AI 分類", True
+    return "等待 AI 分類", True
 
 
 # Route email based on sender and subject to determine AI analysis necessity.
@@ -73,10 +73,10 @@ def route_email(sender, subject):
         return category, needs_ai, True   # third value = is_moodle
 
     if "消費合作社" in sender:
-        return "🗑️ 校園廣告", False, False
+        return "校園廣告", False, False
 
     if "coursera" in sender_lower:
-        return "💻 外部學習", False, False
+        return "外部學習", False, False
 
     # ── NCKU campus emails ──
     if "ncku.edu.tw" in sender_lower or "處" in sender or "中心" in sender or "館" in sender:
@@ -237,7 +237,7 @@ def fetch_and_analyze_emails(service, page_token=None):
             msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             email_body = get_email_body(msg_full.get("payload", {}))
 
-            final_category, final_summary, final_event_time = "🔄 等待 AI 分類", subject, None
+            final_category, final_summary, final_event_time = "等待 AI 分類", subject, None
             if len(email_body) > 20:
                 print(f"[AI] Analyzing: {subject[:20]}...")
                 ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)

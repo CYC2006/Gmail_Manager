@@ -9,6 +9,8 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT_DIR, '.env')
 load_dotenv(dotenv_path=ENV_PATH)
 
+PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in .env")
@@ -20,57 +22,22 @@ MODEL = "llama-3.3-70b-versatile"
 # ──────────────────────────────────────────────
 # Prompt templates (English instructions so LLaMA performs reliably)
 # The email body may be written in Chinese — that is fine.
+# System prompts are loaded from txt files in src/prompts/
 # ──────────────────────────────────────────────
 
-MOODLE_SYSTEM = """You are a university student's smart email assistant.
-You will receive a Moodle system notification email. The content may be in Chinese.
-Internally translate the content to English if needed, then analyse it.
+def _load_prompt(filename):
+    path = os.path.join(PROMPTS_DIR, filename)
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
-You MUST respond with valid JSON only — no markdown, no extra text.
-
-Pick exactly ONE category from this list (copy the label exactly as written):
-  "📝 作業公布"  (New assignment published)
-  "💀 作業死線"  (Assignment deadline reminder)
-  "💯 成績公布"  (Grade released)
-  "✅ 繳交確認"  (Submission confirmed)
-  "🛑 停課通知"  (Class cancelled)
-  "📝 考試相關"  (Exam related)
-  "❓ 其他郵件"  (Other)
-
-Return this JSON schema:
-{
-  "category": "<exact label from the list above>",
-  "summary": "<一句繁體中文摘要，說明哪個課程發生什麼事，例如「資料結構：HW3 截止提醒」>",
-  "event_time": "<deadline or exam time in YYYY-MM-DD_HH:MM format, or null>",
-  "action_required": "<what the student should do, in English, or null>"
-}"""
+MOODLE_SYSTEM = _load_prompt("moodle_analyzer2.txt")
+SCHOOL_SYSTEM = _load_prompt("email_analyzer3.txt")
 
 MOODLE_USER = """Sender: {sender}
 Received: {receive_time}
 
 Email body:
 {text_to_analyze}"""
-
-
-SCHOOL_SYSTEM = """You are a university student's smart email assistant.
-You will receive a campus/school email. The content may be in Chinese.
-Internally translate the content to English if needed, then analyse it.
-
-You MUST respond with valid JSON only — no markdown, no extra text.
-
-Pick exactly ONE category from this list (copy the label exactly as written):
-  "📌 重要公告"  (Important announcement: power outage, course registration, payment, system maintenance, etc.)
-  "🎉 講座活動"  (Lecture / event: talk, workshop, company info session, performance — usually requires sign-up or attendance)
-  "📢 一般宣導"  (General notice: surveys, campaigns, newsletters — non-mandatory)
-  "❓ 其他郵件"  (Other / cannot be classified)
-
-Return this JSON schema:
-{
-  "category": "<exact label from the list above>",
-  "summary": "<一句繁體中文摘要，說明這封信的主旨，例如「體能與抱石系列課程」>",
-  "event_time": "<event time in YYYY-MM-DD_HH:MM format, or a range YYYY-MM-DD_HH:MM ~ YYYY-MM-DD_HH:MM, or null>",
-  "action_required": "<what the student should do, in English, or null>"
-}"""
 
 SCHOOL_USER = """Sender: {sender}
 Received: {receive_time}
