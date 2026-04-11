@@ -7,7 +7,7 @@ from googleapiclient.discovery import build
 # import other source code
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_content
-from src.db_manager import init_db, get_cached_result, save_analysis
+from src.db_manager import init_db, get_cached_result, save_analysis, remove_stale_emails
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -188,6 +188,9 @@ def fetch_and_analyze_emails(service, page_token=None):
         print("[SYSTEM] No messages found.")
         return
 
+    # Remove DB entries that are no longer in this inbox page
+    remove_stale_emails({m["id"] for m in messages})
+
     # Single batch request replaces N individual metadata API calls
     print(f"[SYSTEM] Batch fetching metadata for {len(messages)} emails...")
     meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
@@ -211,6 +214,7 @@ def fetch_and_analyze_emails(service, page_token=None):
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get('category'), "summary": cached.get('summary'),
+                    "event_time": cached.get('event_time'),
                     "is_unread": is_unread, "is_starred": is_starred, "_index": i
                 }
             elif not needs_ai:
@@ -218,6 +222,7 @@ def fetch_and_analyze_emails(service, page_token=None):
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": initial_tag, "summary": subject,
+                    "event_time": None,
                     "is_unread": is_unread, "is_starred": is_starred, "_index": i
                 }
             else:
@@ -232,13 +237,14 @@ def fetch_and_analyze_emails(service, page_token=None):
             msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             email_body = get_email_body(msg_full.get("payload", {}))
 
-            final_category, final_summary = "🔄 等待 AI 分類", subject
+            final_category, final_summary, final_event_time = "🔄 等待 AI 分類", subject, None
             if len(email_body) > 20:
                 print(f"[AI] Analyzing: {subject[:20]}...")
                 ai_result = analyze_email_content(email_body, sender, receive_time, is_moodle=is_moodle_mail)
                 if ai_result.get('category') != "⚠️ Analysis Failed":
-                    final_category = ai_result.get('category')
-                    final_summary  = ai_result.get('summary')
+                    final_category  = ai_result.get('category')
+                    final_summary   = ai_result.get('summary')
+                    final_event_time = ai_result.get('event_time')
                     ai_result["sender"] = sender
                     ai_result["time"]   = receive_time
                     save_analysis(email_id, ai_result)
@@ -248,6 +254,7 @@ def fetch_and_analyze_emails(service, page_token=None):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": final_category, "summary": final_summary,
+                "event_time": final_event_time,
                 "is_unread": is_unread, "is_starred": is_starred, "_index": i
             }
         except Exception as error:

@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
+from src.db_manager import delete_analysis
 
 def main(page: ft.Page):
     # ==========================
@@ -144,6 +145,7 @@ def main(page: ft.Page):
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
             page.update()
+            await asyncio.to_thread(delete_analysis, email_id)
             await _call_with_ssl_retry(trash_email, email_id)
 
         if is_moodle(data):

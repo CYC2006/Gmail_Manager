@@ -42,6 +42,25 @@ def get_cached_result(email_id):
     return None
 
 
+# delete a single email from the cache (called when user archives or trashes)
+def delete_analysis(email_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute('DELETE FROM analyzed_emails WHERE email_id = ?', (email_id,))
+
+
+# remove DB entries whose email_id is no longer in the provided inbox id set
+def remove_stale_emails(current_inbox_ids: set):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT email_id FROM analyzed_emails')
+        stored_ids = {row[0] for row in cursor.fetchall()}
+        stale_ids = stored_ids - current_inbox_ids
+        if stale_ids:
+            conn.executemany('DELETE FROM analyzed_emails WHERE email_id = ?',
+                             [(eid,) for eid in stale_ids])
+            print(f"[DB] Removed {len(stale_ids)} stale entries from cache")
+
+
 # save ai analyzed result into database
 def save_analysis(email_id, ai_result):
     with sqlite3.connect(DB_NAME) as conn:
