@@ -61,6 +61,12 @@ def remove_stale_emails(current_inbox_ids: set):
             print(f"[DB] Removed {len(stale_ids)} stale entries from cache")
 
 
+# update only the summary field for an already-stored email
+def update_summary(email_id, summary):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute('UPDATE analyzed_emails SET summary = ? WHERE email_id = ?', (summary, email_id))
+
+
 # save ai analyzed result into database
 def save_analysis(email_id, ai_result):
     with sqlite3.connect(DB_NAME) as conn:

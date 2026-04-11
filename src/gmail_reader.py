@@ -6,7 +6,7 @@ from googleapiclient.discovery import build
 
 # import other source code
 from src.email_parser import get_email_body
-from src.ai_agent import analyze_email_content
+from src.ai_agent import analyze_email_content, get_email_summary, get_email_summaries_batch, SUMMARY_BATCH_SIZE
 from src.db_manager import init_db, get_cached_result, save_analysis, remove_stale_emails
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
@@ -128,8 +128,10 @@ def get_inbox_stats(service):
         return {"inbox": 0, "unread": 0, "starred": 0}
 
 
+METADATA_BATCH_SIZE = 10  # Gmail concurrent request limit per user
+
 def _batch_fetch_metadata(service, message_ids):
-    """Fetch metadata for all emails in one HTTP batch request instead of N separate calls."""
+    """Fetch metadata in chunks of METADATA_BATCH_SIZE to avoid Gmail's concurrent request limit."""
     meta_map = {}
 
     def handle_response(request_id, response, exception):
@@ -138,16 +140,19 @@ def _batch_fetch_metadata(service, message_ids):
         else:
             print(f"[BATCH] Metadata fetch failed for {request_id}: {exception}")
 
-    batch = service.new_batch_http_request(callback=handle_response)
-    for msg_id in message_ids:
-        batch.add(
-            service.users().messages().get(
-                userId="me", id=msg_id, format="metadata",
-                metadataHeaders=["From", "Subject", "Date"]
-            ),
-            request_id=msg_id
-        )
-    batch.execute()
+    for i in range(0, len(message_ids), METADATA_BATCH_SIZE):
+        chunk = message_ids[i : i + METADATA_BATCH_SIZE]
+        batch = service.new_batch_http_request(callback=handle_response)
+        for msg_id in chunk:
+            batch.add(
+                service.users().messages().get(
+                    userId="me", id=msg_id, format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"]
+                ),
+                request_id=msg_id
+            )
+        batch.execute()
+
     return meta_map
 
 
@@ -195,7 +200,8 @@ def fetch_and_analyze_emails(service, page_token=None):
     print(f"[SYSTEM] Batch fetching metadata for {len(messages)} emails...")
     meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
 
-    ai_queue = []  # (index, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail)
+    ai_queue      = []  # (index, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail)
+    summary_queue = []  # same tuple — rule-based emails that need a summary-only AI call
 
     # ── Pass 1: yield cached and rule-classified emails immediately ──
     for i, message in enumerate(messages):
@@ -219,12 +225,15 @@ def fetch_and_analyze_emails(service, page_token=None):
                 }
             elif not needs_ai:
                 print(f"[RULES] Classified: {subject[:20]}... → {initial_tag}")
+                # Don't save to DB yet — Pass 3 will save once it has the AI summary.
+                # Saving here with the raw subject would get cached and block Pass 3 forever.
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": initial_tag, "summary": subject,
                     "event_time": None,
                     "is_unread": is_unread, "is_starred": is_starred, "_index": i
                 }
+                summary_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, initial_tag))
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle_mail))
 
@@ -259,6 +268,36 @@ def fetch_and_analyze_emails(service, page_token=None):
             }
         except Exception as error:
             print(f"[ERROR] Pass 2 AI failed for {email_id}: {error}")
+
+    # ── Pass 3: batch-summarize rule-based emails (SUMMARY_BATCH_SIZE emails per API call) ──
+    for batch_start in range(0, len(summary_queue), SUMMARY_BATCH_SIZE):
+        batch = summary_queue[batch_start : batch_start + SUMMARY_BATCH_SIZE]
+
+        # Fetch full bodies for every email in this batch
+        bodies = []
+        for item in batch:
+            i, email_id, sender, subject, receive_time, is_unread, is_starred, category = item
+            try:
+                msg_full = service.users().messages().get(userId="me", id=email_id, format="full").execute()
+                email_body = get_email_body(msg_full.get("payload", {}))
+                bodies.append(email_body if len(email_body) > 20 else subject)
+            except Exception as error:
+                print(f"[ERROR] Pass 3 body fetch failed for {email_id}: {error}")
+                bodies.append(subject)  # fallback so index alignment stays intact
+
+        print(f"[AI] Batch summarizing {len(batch)} emails...")
+        summaries = get_email_summaries_batch(bodies)
+
+        for j, item in enumerate(batch):
+            i, email_id, sender, subject, receive_time, is_unread, is_starred, category = item
+            new_summary = summaries.get(j)
+            if new_summary:
+                save_analysis(email_id, {
+                    "sender": sender, "time": receive_time,
+                    "category": category, "summary": new_summary,
+                    "event_time": None, "action_required": None,
+                })
+                yield {"_update": True, "id": email_id, "summary": new_summary}
 
     # If Gmail says there are more pages, yield a sentinel so the caller can chain
     next_token = results.get("nextPageToken")

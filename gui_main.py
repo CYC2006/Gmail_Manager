@@ -24,6 +24,7 @@ def main(page: ft.Page):
     svc = {"service": None}   # mutable holder so all closures can rebuild the service on SSL error
     all_emails = []
     shown_email_ids = {}      # {email_id: _index} — tracks rendered emails and their inbox position
+    summary_refs = {}         # {email_id: ft.Text} — live reference to each card's summary Text control
     current_view = ["inbox"]  # mutable container for nonlocal-like access
     fetch_gen = [0]           # increments on every refresh to cancel stale background tasks
     ui_lock = asyncio.Lock()  # prevents background fetch and user actions from modifying the list simultaneously
@@ -36,7 +37,6 @@ def main(page: ft.Page):
     # ==========================
 
     email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.padding.only(right=8))
-    status_text = ft.Text("", color=ft.Colors.BLUE_200, size=13)
 
     user_email_text = ft.Text("Loading...", size=12, color=ft.Colors.OUTLINE)
 
@@ -133,6 +133,7 @@ def main(page: ft.Page):
             async with ui_lock:
                 email_list_view.controls.remove(card_ref)
                 shown_email_ids.pop(email_id, None)
+                summary_refs.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
             page.update()
@@ -142,6 +143,7 @@ def main(page: ft.Page):
             async with ui_lock:
                 email_list_view.controls.remove(card_ref)
                 shown_email_ids.pop(email_id, None)
+                summary_refs.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
             page.update()
@@ -233,7 +235,7 @@ def main(page: ft.Page):
                                     padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                                     border_radius=5,
                                 ),
-                                ft.Text(data['summary'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
+                                (summary_text := ft.Text(data['summary'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1)),
                             ],
                             spacing=8,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -242,6 +244,7 @@ def main(page: ft.Page):
                 ),
             ),
         )
+        summary_refs[email_id] = summary_text
         return card
 
     # ==========================
@@ -258,6 +261,7 @@ def main(page: ft.Page):
         """Rebuild the visible list from all_emails (sorted by _index), up to PAGE_SIZE."""
         email_list_view.controls.clear()
         shown_email_ids.clear()
+        summary_refs.clear()
         for data in all_emails:
             if len(shown_email_ids) >= PAGE_SIZE:
                 break
@@ -327,8 +331,6 @@ def main(page: ft.Page):
     async def background_fetch_task(token, gen_id, page_num=2):
         """Silently fetches subsequent pages up to MAX_PAGES and appends to all_emails."""
         if page_num > MAX_PAGES:
-            status_text.value = ""
-            page.update()
             return
         try:
             gen = fetch_and_analyze_emails(svc["service"], page_token=token)
@@ -341,22 +343,29 @@ def main(page: ft.Page):
                 if "_next_page_token" in email_data:
                     page.run_task(background_fetch_task, email_data["_next_page_token"], gen_id, page_num + 1)
                     return
+                if "_update" in email_data:
+                    eid = email_data["id"]
+                    new_summary = email_data["summary"]
+                    async with ui_lock:
+                        for e in all_emails:
+                            if e['id'] == eid:
+                                e['summary'] = new_summary
+                                break
+                        if eid in summary_refs:
+                            summary_refs[eid].value = new_summary
+                    page.update()
+                    await asyncio.sleep(0)
+                    continue
                 async with ui_lock:
                     _insert_email_sorted(email_data)
                     append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
 
-            if fetch_gen[0] == gen_id:
-                status_text.value = ""
-                page.update()
-
         except Exception as ex:
             import traceback
             traceback.print_exc()
-            if fetch_gen[0] == gen_id:
-                status_text.value = f"背景載入失敗：{str(ex)}"
-                page.update()
+            print(f"[ERROR] Background fetch failed: {ex}")
 
     async def fetch_task():
         this_gen = fetch_gen[0]
@@ -380,6 +389,7 @@ def main(page: ft.Page):
 
             all_emails.clear()
             shown_email_ids.clear()
+            summary_refs.clear()
             email_list_view.controls.clear()
             page.update()
 
@@ -391,24 +401,31 @@ def main(page: ft.Page):
                 if "_next_page_token" in email_data:
                     page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
                     return
+                if "_update" in email_data:
+                    eid = email_data["id"]
+                    new_summary = email_data["summary"]
+                    for e in all_emails:
+                        if e['id'] == eid:
+                            e['summary'] = new_summary
+                            break
+                    if eid in summary_refs:
+                        summary_refs[eid].value = new_summary
+                    page.update()
+                    await asyncio.sleep(0)
+                    continue
                 _insert_email_sorted(email_data)
                 append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
 
-            status_text.value = ""
-            page.update()
-
         except Exception as ex:
             import traceback
             traceback.print_exc()
-            status_text.value = f"載入失敗：{str(ex)}"
-            page.update()
+            print(f"[ERROR] Fetch failed: {ex}")
 
     def on_refresh_click(e):
         fetch_gen[0] += 1   # invalidate any running background tasks
         email_list_view.controls.clear()
-        status_text.value = "Loading..."
         page.update()
         page.run_task(fetch_task)
 
@@ -466,14 +483,11 @@ def main(page: ft.Page):
                         ),
                         stats_row,
                     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Row([
-                        status_text,
-                        ft.IconButton(
-                            icon=ft.Icons.REFRESH,
-                            icon_color=ft.Colors.BLUE_200,
-                            on_click=on_refresh_click,
-                        ),
-                    ], spacing=0),
+                    ft.IconButton(
+                        icon=ft.Icons.REFRESH,
+                        icon_color=ft.Colors.BLUE_200,
+                        on_click=on_refresh_click,
+                    ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Divider(height=20, color="transparent"),
                 email_list_view,
