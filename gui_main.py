@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
 from src.db_manager import delete_analysis
+from src.email_parser import get_email_body
 
 def main(page: ft.Page):
     # ==========================
@@ -75,6 +76,85 @@ def main(page: ft.Page):
     inbox_text   = stats_row.controls[0].content.controls[1]
     unread_text  = stats_row.controls[1].content.controls[1]
     starred_text = stats_row.controls[2].content.controls[1]
+
+    # ==========================
+    # 2b. Email Detail Modal
+    # ==========================
+
+    modal_subject = ft.Text("", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True, expand=True)
+    modal_sender  = ft.Text("", size=12, color=ft.Colors.BLUE_GREY_300)
+    modal_time    = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+    modal_body    = ft.Text("", size=13, color="#dddddd", selectable=True)
+
+    def close_modal(e=None):
+        modal_overlay.visible = False
+        page.update()
+
+    modal_overlay = ft.Stack(
+        visible=False,
+        expand=True,
+        controls=[
+            # Visual backdrop (no interaction)
+            ft.Container(
+                expand=True,
+                bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
+            ),
+            # Full-screen tap layer — closes modal when tapped outside the box
+            ft.GestureDetector(
+                on_tap=lambda e: close_modal(),
+                content=ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.GestureDetector(
+                        on_tap=lambda e: None,  # absorb taps inside the box
+                        content=ft.Container(
+                            width=720,
+                            height=520,
+                            bgcolor="#1e1e1e",
+                            border_radius=14,
+                            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+                            padding=ft.Padding.all(24),
+                            content=ft.Column(
+                                spacing=10,
+                                expand=True,
+                                controls=[
+                                    ft.Row(
+                                        controls=[
+                                            modal_subject,
+                                            ft.IconButton(
+                                                icon=ft.Icons.CLOSE,
+                                                icon_size=20,
+                                                icon_color=ft.Colors.OUTLINE,
+                                                padding=ft.Padding.all(4),
+                                                on_click=lambda e: close_modal(),
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    ft.Row(
+                                        controls=[modal_sender, modal_time],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                    ft.Container(
+                                        expand=True,
+                                        content=ft.ListView(
+                                            controls=[modal_body],
+                                            expand=True,
+                                            padding=0,
+                                            spacing=8,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ],
+    )
 
     def is_moodle(data) -> bool:
         return "moodle" in data['sender'].lower()
@@ -147,6 +227,36 @@ def main(page: ft.Page):
             await asyncio.to_thread(delete_analysis, email_id)
             await _call_with_ssl_retry(trash_email, email_id)
 
+        async def on_double_tap(e):
+            modal_subject.value   = data['subject']
+            modal_sender.value    = data['sender']
+            modal_time.value      = data['time']
+            modal_body.value      = ""
+            modal_overlay.visible = True
+            page.update()
+            try:
+                # Only mark as read (and update card color) if the mail is currently unread
+                if data.get('is_unread'):
+                    card_inner.bgcolor = "#2a2a2a"
+                    page.update()
+                    try:
+                        await _call_with_ssl_retry(mark_as_read, email_id)
+                    except Exception as ex:
+                        print(f"[WARN] 標示已讀失敗: {ex}")
+
+                # Build a fresh service so the modal fetch gets its own SSL connection
+                # and doesn't race with the background fetch sharing svc["service"]
+                modal_service = await asyncio.to_thread(get_gmail_service)
+                msg_full = await asyncio.to_thread(
+                    modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
+                )
+                body = get_email_body(msg_full.get("payload", {}))
+                modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
+            except Exception as ex:
+                modal_body.value = f"(Failed to load email content: {ex})"
+            finally:
+                page.update()
+
         if is_moodle(data):
             title_control = ft.Row(
                 controls=[
@@ -170,13 +280,11 @@ def main(page: ft.Page):
                 max_lines=1,
             )
 
-        card = ft.Card(
-            margin=ft.Margin.symmetric(horizontal=10, vertical=3),
-            content=ft.Container(
-                bgcolor=card_bgcolor,
-                padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
-                border_radius=10,
-                content=ft.Column(
+        card_inner = ft.Container(
+            bgcolor=card_bgcolor,
+            padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
+            border_radius=10,
+            content=ft.Column(
                     spacing=8,
                     controls=[
                         ft.Row(
@@ -239,9 +347,15 @@ def main(page: ft.Page):
                         ),
                     ],
                 ),
-            ),
         )
-        return card
+        card = ft.Card(
+            margin=ft.Margin.symmetric(horizontal=10, vertical=3),
+            content=card_inner,
+        )
+        return ft.GestureDetector(
+            on_double_tap=lambda e: page.run_task(on_double_tap, e),
+            content=card,
+        )
 
     # ==========================
     # 3. Core Logic
@@ -465,14 +579,20 @@ def main(page: ft.Page):
     )
 
     page.add(
-        ft.Row(
+        ft.Stack(
             expand=True,
-            spacing=0,
-            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             controls=[
-                sidebar,
-                ft.VerticalDivider(width=1, color=ft.Colors.OUTLINE_VARIANT),
-                main_content,
+                ft.Row(
+                    expand=True,
+                    spacing=0,
+                    vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[
+                        sidebar,
+                        ft.VerticalDivider(width=1, color=ft.Colors.OUTLINE_VARIANT),
+                        main_content,
+                    ]
+                ),
+                modal_overlay,
             ]
         )
     )
