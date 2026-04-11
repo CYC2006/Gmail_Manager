@@ -26,7 +26,6 @@ email_cache.db
 .DS_Store
 
 # =========================
-# special case
+# claude
 # =========================
-mail_structure.txt
 .claude/
