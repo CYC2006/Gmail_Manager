@@ -106,7 +106,7 @@ def _parse_meta(msg_meta):
 # Two-pass strategy:
 #   Pass 1 — yield cached emails immediately (near-instant)
 #   Pass 2 — AI categorizes uncached emails one by one (slower)
-def fetch_and_analyze_emails(service, page_token=None):
+def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
     init_db()
     print(f"[SYSTEM] Fetching emails (page_token={page_token or 'first page'})...")
 
@@ -143,7 +143,7 @@ def fetch_and_analyze_emails(service, page_token=None):
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
-                    "is_unread": is_unread, "is_starred": is_starred, "_index": i
+                    "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
                 }
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle))
@@ -159,7 +159,7 @@ def fetch_and_analyze_emails(service, page_token=None):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": "其他郵件", "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i
+                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
             }
             continue
 
@@ -184,7 +184,7 @@ def fetch_and_analyze_emails(service, page_token=None):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": category, "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i
+                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
             }
         except Exception as error:
             print(f"[ERROR] Pass 2 failed for {email_id}: {error}")

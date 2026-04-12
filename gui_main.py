@@ -3,6 +3,7 @@ import os
 import sys
 import ssl
 import asyncio
+import webbrowser
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -58,7 +59,7 @@ def main(page: ft.Page):
     # ====================
 
     # scrollable list that holds all visible email cards
-    email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.padding.only(right=8))
+    email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.Padding.only(right=8))
 
     # shows the authenticated user's address under the app title
     user_email_text = ft.Text("Loading...", size=12, color=ft.Colors.OUTLINE)
@@ -127,9 +128,9 @@ def main(page: ft.Page):
     # ====================
 
     # header text nodes populated when the user double-taps a card
-    modal_subject = ft.Text("", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True)
-    modal_sender  = ft.Text("", size=12, color=ft.Colors.BLUE_GREY_300)
-    modal_time    = ft.Text("", size=12, color=ft.Colors.OUTLINE)
+    modal_subject = ft.Text("", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True)
+    modal_sender  = ft.Text("", size=16, color=ft.Colors.BLUE_GREY_300)
+    modal_time    = ft.Text("", size=16, color=ft.Colors.OUTLINE)
 
     # raw content text node
     modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
@@ -160,7 +161,7 @@ def main(page: ft.Page):
 
     modal_raw_tab = ft.Container(
         content=modal_raw_tab_icon,
-        padding=ft.padding.all(8),
+        padding=ft.Padding.all(8),
         border_radius=6,
         bgcolor=ft.Colors.BLUE_700,
         tooltip="原文內容",
@@ -168,7 +169,7 @@ def main(page: ft.Page):
     )
     modal_ai_tab = ft.Container(
         content=modal_ai_tab_icon,
-        padding=ft.padding.all(8),
+        padding=ft.Padding.all(8),
         border_radius=6,
         bgcolor=None,
         tooltip="信件分析",
@@ -195,14 +196,14 @@ def main(page: ft.Page):
         content=ft.ListView(
             controls=[modal_body],
             expand=True,
-            padding=ft.padding.only(right=14),
+            padding=ft.Padding.only(right=14),
             spacing=8,
         ),
     )
 
     # ── AI analysis view ──
     # modal_ai_scroll is populated dynamically by _render_ai_result
-    modal_ai_scroll = ft.ListView(expand=True, padding=ft.padding.only(right=14), spacing=0)
+    modal_ai_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=14), spacing=0)
     modal_ai_view = ft.Container(
         expand=True,
         visible=False,
@@ -224,7 +225,7 @@ def main(page: ft.Page):
                         ft.ProgressRing(width=16, height=16, stroke_width=2),
                         ft.Text("分析中...", size=13, color=ft.Colors.OUTLINE),
                     ], spacing=8),
-                    padding=ft.padding.only(top=16),
+                    padding=ft.Padding.only(top=16),
                 )
             )
             if modal_overlay.visible:
@@ -234,43 +235,49 @@ def main(page: ft.Page):
         # ── analysis failed ──
         if result == "error":
             modal_ai_scroll.controls.append(
-                ft.Text("AI 分析失敗，請稍後再試。", size=13, color=ft.Colors.RED_400)
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=ft.Colors.RED_400),
+                        ft.Text("AI 分析失敗，請稍後再試。", size=13, color=ft.Colors.RED_400),
+                    ], spacing=8),
+                    padding=ft.Padding.only(top=16),
+                )
             )
             if modal_overlay.visible:
                 page.update()
             return
 
-        # ── helper: dimmed section label with icon ──
+        # ── helper: section label with icon ──
         def section_header(icon, label):
             return ft.Container(
                 content=ft.Row([
-                    ft.Icon(icon, size=14, color=ft.Colors.BLUE_GREY_400),
-                    ft.Text(label, size=12, color=ft.Colors.BLUE_GREY_400, weight=ft.FontWeight.BOLD),
+                    ft.Icon(icon, size=15, color=ft.Colors.BLUE_GREY_300),
+                    ft.Text(label, size=15, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
                 ], spacing=6),
-                padding=ft.padding.only(top=12, bottom=4),
+                padding=ft.Padding.only(top=4, bottom=4),
             )
 
-        # ── summary ──
+        # ── 摘要 ──
         if result.get("summary"):
             modal_ai_scroll.controls += [
                 section_header(ft.Icons.SUMMARIZE, "摘要"),
                 ft.Container(
                     content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
-                    padding=ft.padding.only(left=4),
+                    padding=ft.Padding.only(left=4),
                 ),
             ]
 
-        # ── action required ──
+        # ── 待辦事項 ──
         if result.get("action_required"):
             modal_ai_scroll.controls += [
                 section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "待辦事項"),
                 ft.Container(
                     content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
-                    padding=ft.padding.only(left=4),
+                    padding=ft.Padding.only(left=4),
                 ),
             ]
 
-        # ── event times ──
+        # ── 重要時間 ──
         if result.get("event_times"):
             modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "重要時間"))
             for item in result["event_times"]:
@@ -283,28 +290,33 @@ def main(page: ft.Page):
                                 size=13, color=ft.Colors.ORANGE_300, selectable=True,
                             ),
                         ], spacing=6),
-                        padding=ft.padding.only(left=4, bottom=2),
+                        padding=ft.Padding.only(left=4, bottom=2),
                     )
                 )
 
-        # ── urls ──
+        # ── 相關連結 ──
         if result.get("urls"):
             modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "相關連結"))
             for item in result["urls"]:
+                url = item.get("url", "")
                 modal_ai_scroll.controls.append(
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.Icons.OPEN_IN_NEW, size=13, color=ft.Colors.BLUE_300),
-                            ft.Text(
-                                item.get("label") or item.get("url", ""),
-                                size=13, color=ft.Colors.BLUE_300, selectable=True,
-                            ),
-                        ], spacing=6),
-                        padding=ft.padding.only(left=4, bottom=2),
+                    ft.GestureDetector(
+                        mouse_cursor=ft.MouseCursor.CLICK,
+                        on_tap=lambda e, u=url: webbrowser.open(u),
+                        content=ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.OPEN_IN_NEW, size=13, color=ft.Colors.BLUE_300),
+                                ft.Text(
+                                    item.get("label") or url,
+                                    size=13, color=ft.Colors.BLUE_300,
+                                ),
+                            ], spacing=6),
+                            padding=ft.Padding.only(left=4, bottom=2),
+                        ),
                     )
                 )
 
-        # ── key points ──
+        # ── 重點整理 ──
         if result.get("key_points"):
             modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "重點整理"))
             for point in result["key_points"]:
@@ -314,7 +326,7 @@ def main(page: ft.Page):
                             ft.Text("•", size=13, color=ft.Colors.BLUE_GREY_300),
                             ft.Text(point, size=13, color="#dddddd", selectable=True, expand=True),
                         ], spacing=8),
-                        padding=ft.padding.only(left=4, bottom=2),
+                        padding=ft.Padding.only(left=4, bottom=2),
                     )
                 )
 
@@ -370,7 +382,7 @@ def main(page: ft.Page):
                             height=540,
                             bgcolor="#1e1e1e",
                             border_radius=14,
-                            border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
+                            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
                             padding=ft.Padding.all(24),
                             content=ft.Column(
                                 spacing=10,
@@ -400,7 +412,7 @@ def main(page: ft.Page):
                                                 ),
                                                 bgcolor="#2a2a2a",
                                                 border_radius=8,
-                                                padding=ft.padding.all(3),
+                                                padding=ft.Padding.all(3),
                                             ),
                                         ],
                                     ),
@@ -792,7 +804,7 @@ def main(page: ft.Page):
         if page_num > MAX_PAGES:
             return
         try:
-            gen = fetch_and_analyze_emails(svc["service"], page_token=token)
+            gen = fetch_and_analyze_emails(svc["service"], page_token=token, page_offset=(page_num - 1) * PAGE_SIZE)
             while True:
                 # abort if the user clicked refresh while this task was running
                 if fetch_gen[0] != gen_id:
@@ -973,4 +985,4 @@ def main(page: ft.Page):
     on_refresh_click(None)
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.run(main)
