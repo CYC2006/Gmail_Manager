@@ -82,3 +82,12 @@ def delete_event(event_id: int):
     """Remove a calendar event by its row id."""
     with sqlite3.connect(CAL_DB) as conn:
         conn.execute('DELETE FROM calendar_events WHERE id = ?', (event_id,))
+
+
+def delete_event_by_key(email_id: str, event_time: str):
+    """Remove a calendar event by (email_id, event_time) pair."""
+    with sqlite3.connect(CAL_DB) as conn:
+        conn.execute(
+            'DELETE FROM calendar_events WHERE email_id = ? AND event_time = ?',
+            (email_id, event_time)
+        )

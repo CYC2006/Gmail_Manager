@@ -154,10 +154,12 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             print(f"[ERROR] Pass 1 failed for {message['id']}: {error}")
 
     # ── Pass 2: AI categorize uncached emails ──
+    tpd_logged = False
     for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle in ai_queue:
         if _ai_agent.TPD_EXHAUSTED:
-            print("[SYSTEM] Daily token limit exhausted — stopping AI analysis.")
-            # yield remaining emails without a category so they still appear
+            if not tpd_logged:
+                print("[SYSTEM] Daily token limit exhausted — remaining emails shown uncategorized.")
+                tpd_logged = True
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": "其他郵件", "subject": subject,

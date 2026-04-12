@@ -14,7 +14,7 @@ from src.email_actions import mark_as_read, toggle_star, archive_email, trash_em
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
-from src.calendar_db import init_calendar_db, add_event
+from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key
 from src.calendar_view import build_calendar_months
 
 def main(page: ft.Page):
@@ -294,25 +294,40 @@ def main(page: ft.Page):
                 lbl = item.get("label", "")
                 t   = item.get("time", "")
 
-                # calendar add button — captured per-item via default args
-                def _on_add_to_cal(e, _lbl=lbl, _t=t, _eid=email_id, _cat=category):
+                # check if already in calendar so the button reflects current state on open
+                already_added = bool(email_id and event_exists(email_id, t))
+
+                cal_btn = ft.IconButton(
+                    icon=ft.Icons.EVENT_AVAILABLE if already_added else ft.Icons.CALENDAR_TODAY,
+                    icon_size=14,
+                    icon_color=ft.Colors.GREEN_400 if already_added else ft.Colors.BLUE_GREY_400,
+                    tooltip="已在行事曆中" if already_added else "加入行事曆",
+                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                )
+
+                def _on_add_to_cal(e, _lbl=lbl, _t=t, _eid=email_id, _cat=category, _btn=cal_btn):
                     if not _eid:
-                        print("[CAL] _on_add_to_cal: email_id is None, skipping")
                         return
                     try:
-                        added = add_event(_eid, _lbl, _t, source="manual", category=_cat)
-                        msg = "已加入行事曆 ✓" if added else "已在行事曆中"
-                        bg  = ft.Colors.GREEN_700 if added else ft.Colors.BLUE_GREY_700
-                        print(f"[CAL] {msg} — {_lbl}: {_t} (email_id={_eid})")
-                        page.snack_bar = ft.SnackBar(
-                            content=ft.Text(msg, color=ft.Colors.WHITE),
-                            bgcolor=bg,
-                            duration=2000,
-                        )
-                        page.snack_bar.open = True
+                        if event_exists(_eid, _t):
+                            # already in calendar — remove it
+                            delete_event_by_key(_eid, _t)
+                            _btn.icon       = ft.Icons.CALENDAR_TODAY
+                            _btn.icon_color = ft.Colors.BLUE_GREY_400
+                            _btn.tooltip    = "加入行事曆"
+                            print(f"[CAL] 已從行事曆移除 — {_lbl}: {_t}")
+                        else:
+                            # not in calendar — add it
+                            add_event(_eid, _lbl, _t, source="manual", category=_cat)
+                            _btn.icon       = ft.Icons.EVENT_AVAILABLE
+                            _btn.icon_color = ft.Colors.GREEN_400
+                            _btn.tooltip    = "已在行事曆中"
+                            print(f"[CAL] 已加入行事曆 — {_lbl}: {_t}")
                         page.update()
                     except Exception as ex:
-                        print(f"[CAL] Failed to add event: {ex}")
+                        print(f"[CAL] Failed to toggle event: {ex}")
+
+                cal_btn.on_click = _on_add_to_cal
 
                 modal_ai_scroll.controls.append(
                     ft.Container(
@@ -322,14 +337,7 @@ def main(page: ft.Page):
                                 f"{lbl}: {t}",
                                 size=13, color=ft.Colors.ORANGE_300, selectable=True, expand=True,
                             ),
-                            ft.IconButton(
-                                icon=ft.Icons.CALENDAR_TODAY,
-                                icon_size=14,
-                                icon_color=ft.Colors.BLUE_GREY_400,
-                                tooltip="加入行事曆",
-                                on_click=_on_add_to_cal,
-                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                            ),
+                            cal_btn,
                         ], spacing=6),
                         padding=ft.Padding.only(left=4, bottom=2),
                     )
