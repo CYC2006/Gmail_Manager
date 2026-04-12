@@ -1,8 +1,11 @@
+import os
 import sqlite3
 import json
 from datetime import datetime, timezone, timedelta
 
-DB_NAME = "email_cache.db"
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_NAME = os.path.join(_DATA_DIR, "email_cache.db")
 
 
 # initialize database and run one-time startup cleanup
