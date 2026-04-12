@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 from src.email_parser import get_email_body
 from src.ai_agent import categorize_email
 import src.ai_agent as _ai_agent
-from src.db_manager import init_db, get_cached_result, save_analysis, remove_stale_emails
+from src.db_manager import init_db, get_cached_result, save_analysis
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -120,9 +120,6 @@ def fetch_and_analyze_emails(service, page_token=None):
     if not messages:
         print("[SYSTEM] No messages found.")
         return
-
-    # Remove DB entries that are no longer in this inbox page
-    remove_stale_emails({m["id"] for m in messages})
 
     print(f"[SYSTEM] Batch fetching metadata for {len(messages)} emails...")
     meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
