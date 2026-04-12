@@ -14,6 +14,8 @@ from src.email_actions import mark_as_read, toggle_star, archive_email, trash_em
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
+from src.calendar_db import init_calendar_db, add_event
+from src.calendar_view import build_calendar_months
 
 def main(page: ft.Page):
 
@@ -27,6 +29,9 @@ def main(page: ft.Page):
     page.window.resizable = False
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
+
+    # ensure calendar DB and table exist before any button handler can fire
+    init_calendar_db()
 
     # ====================
     # Shared State
@@ -143,6 +148,9 @@ def main(page: ft.Page):
     # current active tab: "raw" or "ai"
     modal_view_state = ["raw"]
 
+    # category of the currently open email (used by the calendar add button)
+    modal_category = [None]
+
     def close_modal(e=None):
         modal_overlay.visible = False
         modal_gen[0] += 1  # cancel any pending AI analysis task
@@ -212,7 +220,7 @@ def main(page: ft.Page):
         content=modal_ai_scroll,
     )
 
-    def _render_ai_result(result, gen_id):
+    def _render_ai_result(result, gen_id, email_id=None, category=None):
         """Rebuild the AI analysis panel. Silently ignored if the modal was closed/reopened."""
         if gen_id != modal_gen[0]:
             return
@@ -283,13 +291,44 @@ def main(page: ft.Page):
         if result.get("event_times"):
             modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "重要時間"))
             for item in result["event_times"]:
+                lbl = item.get("label", "")
+                t   = item.get("time", "")
+
+                # calendar add button — captured per-item via default args
+                def _on_add_to_cal(e, _lbl=lbl, _t=t, _eid=email_id, _cat=category):
+                    if not _eid:
+                        print("[CAL] _on_add_to_cal: email_id is None, skipping")
+                        return
+                    try:
+                        added = add_event(_eid, _lbl, _t, source="manual", category=_cat)
+                        msg = "已加入行事曆 ✓" if added else "已在行事曆中"
+                        bg  = ft.Colors.GREEN_700 if added else ft.Colors.BLUE_GREY_700
+                        print(f"[CAL] {msg} — {_lbl}: {_t} (email_id={_eid})")
+                        page.snack_bar = ft.SnackBar(
+                            content=ft.Text(msg, color=ft.Colors.WHITE),
+                            bgcolor=bg,
+                            duration=2000,
+                        )
+                        page.snack_bar.open = True
+                        page.update()
+                    except Exception as ex:
+                        print(f"[CAL] Failed to add event: {ex}")
+
                 modal_ai_scroll.controls.append(
                     ft.Container(
                         content=ft.Row([
                             ft.Icon(ft.Icons.SCHEDULE, size=13, color=ft.Colors.ORANGE_300),
                             ft.Text(
-                                f"{item.get('label', '')}: {item.get('time', '')}",
-                                size=13, color=ft.Colors.ORANGE_300, selectable=True,
+                                f"{lbl}: {t}",
+                                size=13, color=ft.Colors.ORANGE_300, selectable=True, expand=True,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CALENDAR_TODAY,
+                                icon_size=14,
+                                icon_color=ft.Colors.BLUE_GREY_400,
+                                tooltip="加入行事曆",
+                                on_click=_on_add_to_cal,
+                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
                             ),
                         ], spacing=6),
                         padding=ft.Padding.only(left=4, bottom=2),
@@ -337,24 +376,25 @@ def main(page: ft.Page):
 
     async def _analyze_modal_email(email_id, body, gen_id):
         """Background task: serve detail analysis from DB cache or call AI if not cached."""
+        cat = modal_category[0]
         # check DB cache first — no AI call needed if already analyzed
         cached = await asyncio.to_thread(get_detail_analysis, email_id)
         if cached:
-            _render_ai_result(cached, gen_id)
+            _render_ai_result(cached, gen_id, email_id=email_id, category=cat)
             return
 
-        _render_ai_result(None, gen_id)  # show "analyzing…" while waiting for AI
+        _render_ai_result(None, gen_id, email_id=email_id, category=cat)  # show "analyzing…"
         try:
             result = await asyncio.to_thread(analyze_email_detail, body)
             if result:
                 # persist so future opens are instant
                 await asyncio.to_thread(save_detail_analysis, email_id, result)
-                _render_ai_result(result, gen_id)
+                _render_ai_result(result, gen_id, email_id=email_id, category=cat)
             else:
-                _render_ai_result("error", gen_id)
+                _render_ai_result("error", gen_id, email_id=email_id, category=cat)
         except Exception as ex:
             print(f"[WARN] Modal AI analysis failed: {ex}")
-            _render_ai_result("error", gen_id)
+            _render_ai_result("error", gen_id, email_id=email_id, category=cat)
 
     # Stack layers (bottom → top):
     #   1. semi-transparent black backdrop (visual only)
@@ -561,6 +601,7 @@ def main(page: ft.Page):
             modal_sender.value    = data['sender']
             modal_time.value      = data['time']
             modal_body.value      = ""
+            modal_category[0]     = data.get('category')
             modal_overlay.visible = True
             page.update()
 
@@ -770,7 +811,7 @@ def main(page: ft.Page):
             render_current_view()
             update_stats_display()
         else:
-            page.update()
+            _refresh_calendar()
 
     # ====================
     # Email List Helpers
@@ -942,86 +983,13 @@ def main(page: ft.Page):
     # Calendar Panel
     # ====================
 
-    def _build_calendar_months():
-        """Build a flat list of Flet controls for 14 months starting from today."""
-        today  = _date.today()
-        month_names = ["Jan","Feb","Mar","Apr","May","Jun",
-                       "Jul","Aug","Sep","Oct","Nov","Dec"]
-        sections = []
+    # scrollable inner list — rebuilt with fresh event data on every view switch
+    cal_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=8), spacing=0)
 
-        for offset in range(14):
-            raw   = today.month - 1 + offset
-            year  = today.year + raw // 12
-            month = raw % 12 + 1
-
-            # month title
-            sections.append(
-                ft.Container(
-                    content=ft.Text(
-                        f"{month_names[month - 1]} {year}",
-                        size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE,
-                    ),
-                    padding=ft.Padding.only(top=20, bottom=8, left=4),
-                )
-            )
-
-            # one row per week
-            for week in _cal.monthcalendar(year, month):
-                cells = []
-                for col, day in enumerate(week):
-                    is_sun = (col == 0)
-                    is_sat = (col == 6)
-
-                    if day == 0:
-                        # day belongs to prev/next month — empty dark cell
-                        cells.append(
-                            ft.Container(expand=True, height=80, bgcolor="#161616", border_radius=6)
-                        )
-                    else:
-                        is_today = (
-                            year == today.year and
-                            month == today.month and
-                            day == today.day
-                        )
-                        if is_today:
-                            num_color, num_bg = ft.Colors.WHITE, ft.Colors.BLUE_600
-                        elif is_sun:
-                            num_color, num_bg = ft.Colors.RED_300, None
-                        elif is_sat:
-                            num_color, num_bg = ft.Colors.BLUE_300, None
-                        else:
-                            num_color, num_bg = ft.Colors.BLUE_GREY_300, None
-
-                        cells.append(
-                            ft.Container(
-                                content=ft.Column([
-                                    ft.Container(
-                                        content=ft.Text(
-                                            str(day), size=12,
-                                            color=num_color,
-                                            weight=ft.FontWeight.BOLD,
-                                            text_align=ft.TextAlign.CENTER,
-                                        ),
-                                        bgcolor=num_bg,
-                                        border_radius=12,
-                                        width=24, height=24,
-                                        alignment=ft.Alignment(0, 0),
-                                    ),
-                                    # event entries will be populated in a future update
-                                ], spacing=2),
-                                expand=True,
-                                height=80,
-                                bgcolor="#1e1e1e",
-                                border_radius=6,
-                                padding=ft.Padding.all(6),
-                            )
-                        )
-
-                sections.append(ft.Row(controls=cells, spacing=2))
-
-            sections.append(ft.Divider(height=8, color="transparent"))
-
-        return sections
+    def _refresh_calendar():
+        """Reload all events from DB and rebuild the calendar grid in cal_scroll."""
+        cal_scroll.controls = build_calendar_months(on_delete_event=_refresh_calendar)
+        page.update()
 
     # sticky day-of-week header above the scrollable grid
     cal_header = ft.Row(
@@ -1056,12 +1024,7 @@ def main(page: ft.Page):
         controls=[
             cal_header,
             ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-            ft.ListView(
-                expand=True,
-                padding=ft.Padding.only(right=8),
-                spacing=0,
-                controls=_build_calendar_months(),
-            ),
+            cal_scroll,
         ],
     )
 

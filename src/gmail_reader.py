@@ -6,9 +6,10 @@ from googleapiclient.discovery import build
 
 # import other source code
 from src.email_parser import get_email_body
-from src.ai_agent import categorize_email
+from src.ai_agent import categorize_email, extract_moodle_events
 import src.ai_agent as _ai_agent
 from src.db_manager import init_db, get_cached_result, save_analysis
+from src.calendar_db import init_calendar_db, add_event
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -108,6 +109,7 @@ def _parse_meta(msg_meta):
 #   Pass 2 — AI categorizes uncached emails one by one (slower)
 def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
     init_db()
+    init_calendar_db()
     print(f"[SYSTEM] Fetching emails (page_token={page_token or 'first page'})...")
 
     list_kwargs = {"userId": "me", "q": "is:inbox", "maxResults": MAX_RESULTS}
@@ -178,6 +180,24 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                         "category": category, "summary": subject,
                         "event_time": None, "action_required": None,
                     })
+
+                    # auto-extract event times only for Moodle categories that have a meaningful date
+                    # 作業公布/成績公布/繳交確認 are informational — no calendar event needed
+                    _CAL_WORTHY = {"作業死線", "停課通知", "考試相關"}
+                    if is_moodle and category in _CAL_WORTHY:
+                        print(f"[CAL] Extracting events from Moodle mail: {subject[:30]}...")
+                        events = extract_moodle_events(email_body)
+                        added = 0
+                        for ev in events:
+                            lbl = ev.get("label", "")
+                            t   = ev.get("time", "")
+                            if lbl and t and add_event(
+                                email_id, lbl, t,
+                                source="moodle_auto", category=category
+                            ):
+                                added += 1
+                        if added:
+                            print(f"[CAL] Added {added} event(s) for {email_id}")
                 else:
                     print(f"[WARN] Categorization returned None for {email_id}")
 

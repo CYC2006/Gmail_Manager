@@ -51,9 +51,10 @@ def _load_prompt(filename):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-MOODLE_CATEGORIZE    = _load_prompt("moodle_categorize.txt")
-EMAIL_CATEGORIZE     = _load_prompt("email_categorize.txt")
-EMAIL_DETAIL_ANALYZE = _load_prompt("email_detail_analyze.txt")
+MOODLE_CATEGORIZE     = _load_prompt("moodle_categorize.txt")
+EMAIL_CATEGORIZE      = _load_prompt("email_categorize.txt")
+EMAIL_DETAIL_ANALYZE  = _load_prompt("email_detail_analyze.txt")
+MOODLE_EVENT_EXTRACT  = _load_prompt("moodle_event_extract.txt")
 
 
 # Rate limiting
@@ -137,6 +138,54 @@ def categorize_email(email_body, is_moodle=False):
     return None
 
 
+def extract_moodle_events(email_body):
+    """Extract event times from a Moodle email body.
+    Returns a list of {"label": str, "time": str} dicts, or [] on failure."""
+    global LAST_API_CALL_TIME
+
+    if TPD_EXHAUSTED:
+        return []
+
+    user_content = f"Email body:\n{email_body[:3000]}"
+
+    elapsed = time.time() - LAST_API_CALL_TIME
+    if elapsed < MIN_INTERVAL:
+        time.sleep(MIN_INTERVAL - elapsed)
+
+    for _ in range(len(_AVAILABLE_KEYS)):
+        try:
+            response = _get_client().chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": MOODLE_EVENT_EXTRACT},
+                    {"role": "user",   "content": user_content},
+                ],
+                temperature=0.1,
+                max_tokens=300,
+            )
+
+            LAST_API_CALL_TIME = time.time()
+
+            raw = response.choices[0].message.content.strip()
+            match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if not match:
+                print("[DEBUG] Moodle event extract: no JSON found in response")
+                break
+            result = json.loads(match.group())
+            return result.get("event_times", [])
+
+        except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "rate_limit" in error_msg.lower():
+                if _print_tpd_429(error_msg):
+                    break
+            else:
+                print(f"[DEBUG] Moodle event extract failed: {e}")
+                break
+
+    return []
+
+
 def analyze_email_detail(email_body):
     """Run a full structured analysis of one email.
     Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
@@ -161,7 +210,7 @@ def analyze_email_detail(email_body):
                     {"role": "user",   "content": user_content},
                 ],
                 temperature=0.1,
-                max_tokens=1000,  # raised from 600 — long responses (many events/urls) were truncating JSON
+                max_tokens=1500,  # raised from 1000 — give model more room to close JSON cleanly
             )
 
             LAST_API_CALL_TIME = time.time()
@@ -172,8 +221,14 @@ def analyze_email_detail(email_body):
             match = _re.search(r'\{.*\}', raw, _re.DOTALL)
             if not match:
                 print(f"[DEBUG] Detail analysis: no JSON object found in response")
+                print(f"[DEBUG] Raw response was: {raw[:300]}")
                 break
-            return json.loads(match.group())
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError as json_err:
+                print(f"[DEBUG] Detail analysis: malformed JSON — {json_err}")
+                print(f"[DEBUG] Offending JSON (first 400 chars): {match.group()[:400]}")
+                break
 
         except Exception as e:
             error_msg = str(e)
