@@ -10,16 +10,22 @@ def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS analyzed_emails (
-                email_id       TEXT PRIMARY KEY,
-                sender         TEXT,
-                receive_time   TEXT,
-                category       TEXT,
-                summary        TEXT,
-                event_time     TEXT,
+                email_id        TEXT PRIMARY KEY,
+                sender          TEXT,
+                receive_time    TEXT,
+                category        TEXT,
+                summary         TEXT,
+                event_time      TEXT,
                 action_required TEXT,
-                last_seen      TEXT
+                last_seen       TEXT,
+                detail_analysis TEXT
             )
         ''')
+        # add detail_analysis column to existing databases that predate this schema
+        try:
+            conn.execute('ALTER TABLE analyzed_emails ADD COLUMN detail_analysis TEXT')
+        except Exception:
+            pass  # column already exists
 
     # purge entries not seen in any fetch for over 30 days
     cleanup_old_entries(days=30)
@@ -80,6 +86,29 @@ def cleanup_old_entries(days=30):
 
     if deleted:
         print(f"[DB] Cleaned up {deleted} entries not seen for over {days} days")
+
+
+# get the cached detail analysis JSON for an email (returns dict or None)
+def get_detail_analysis(email_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT detail_analysis FROM analyzed_emails WHERE email_id = ?', (email_id,))
+        row = cursor.fetchone()
+    if row and row[0]:
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return None
+    return None
+
+
+# store the full detail analysis JSON for an email
+def save_detail_analysis(email_id, result_dict):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            'UPDATE analyzed_emails SET detail_analysis = ? WHERE email_id = ?',
+            (json.dumps(result_dict, ensure_ascii=False), email_id)
+        )
 
 
 # update only the summary field for an already-stored email

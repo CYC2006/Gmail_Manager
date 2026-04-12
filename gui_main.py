@@ -8,8 +8,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
-from src.db_manager import delete_analysis
+from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis
 from src.email_parser import get_email_body
+from src.ai_agent import analyze_email_detail
 
 def main(page: ft.Page):
 
@@ -125,21 +126,227 @@ def main(page: ft.Page):
     # Email Detail Modal
     # ====================
 
-    # text widgets populated when the user double-taps a card
-    modal_subject = ft.Text("", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True, expand=True)
+    # header text nodes populated when the user double-taps a card
+    modal_subject = ft.Text("", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True)
     modal_sender  = ft.Text("", size=12, color=ft.Colors.BLUE_GREY_300)
     modal_time    = ft.Text("", size=12, color=ft.Colors.OUTLINE)
-    modal_body    = ft.Text("", size=13, color="#dddddd", selectable=True)
+
+    # raw content text node
+    modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
+
+    # incremented each time the modal opens — invalidates in-flight AI tasks from previous open
+    modal_gen = [0]
+
+    # current active tab: "raw" or "ai"
+    modal_view_state = ["raw"]
 
     def close_modal(e=None):
         modal_overlay.visible = False
+        modal_gen[0] += 1  # cancel any pending AI analysis task
         page.update()
+
+    # ── tab button styling helpers ──
+    def _tab_on(icon_widget, container):
+        container.bgcolor = ft.Colors.BLUE_700
+        icon_widget.color = ft.Colors.WHITE
+
+    def _tab_off(icon_widget, container):
+        container.bgcolor = None
+        icon_widget.color = ft.Colors.BLUE_GREY_400
+
+    # tab button icon widgets (kept as references so color can be toggled)
+    modal_raw_tab_icon = ft.Icon(ft.Icons.ARTICLE,       size=18, color=ft.Colors.WHITE)
+    modal_ai_tab_icon  = ft.Icon(ft.Icons.AUTO_AWESOME,  size=18, color=ft.Colors.BLUE_GREY_400)
+
+    modal_raw_tab = ft.Container(
+        content=modal_raw_tab_icon,
+        padding=ft.padding.all(8),
+        border_radius=6,
+        bgcolor=ft.Colors.BLUE_700,
+        tooltip="原文內容",
+        on_click=lambda e: switch_modal_tab("raw"),
+    )
+    modal_ai_tab = ft.Container(
+        content=modal_ai_tab_icon,
+        padding=ft.padding.all(8),
+        border_radius=6,
+        bgcolor=None,
+        tooltip="信件分析",
+        on_click=lambda e: switch_modal_tab("ai"),
+    )
+
+    def switch_modal_tab(tab):
+        modal_view_state[0]    = tab
+        modal_raw_view.visible = (tab == "raw")
+        modal_ai_view.visible  = (tab == "ai")
+        if tab == "raw":
+            _tab_on(modal_raw_tab_icon, modal_raw_tab)
+            _tab_off(modal_ai_tab_icon, modal_ai_tab)
+        else:
+            _tab_off(modal_raw_tab_icon, modal_raw_tab)
+            _tab_on(modal_ai_tab_icon, modal_ai_tab)
+        page.update()
+
+    # ── raw content view ──
+    # right padding keeps text clear of the scrollbar
+    modal_raw_view = ft.Container(
+        expand=True,
+        visible=True,
+        content=ft.ListView(
+            controls=[modal_body],
+            expand=True,
+            padding=ft.padding.only(right=14),
+            spacing=8,
+        ),
+    )
+
+    # ── AI analysis view ──
+    # modal_ai_scroll is populated dynamically by _render_ai_result
+    modal_ai_scroll = ft.ListView(expand=True, padding=ft.padding.only(right=14), spacing=0)
+    modal_ai_view = ft.Container(
+        expand=True,
+        visible=False,
+        content=modal_ai_scroll,
+    )
+
+    def _render_ai_result(result, gen_id):
+        """Rebuild the AI analysis panel. Silently ignored if the modal was closed/reopened."""
+        if gen_id != modal_gen[0]:
+            return
+
+        modal_ai_scroll.controls.clear()
+
+        # ── still loading ──
+        if result is None:
+            modal_ai_scroll.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.ProgressRing(width=16, height=16, stroke_width=2),
+                        ft.Text("分析中...", size=13, color=ft.Colors.OUTLINE),
+                    ], spacing=8),
+                    padding=ft.padding.only(top=16),
+                )
+            )
+            if modal_overlay.visible:
+                page.update()
+            return
+
+        # ── analysis failed ──
+        if result == "error":
+            modal_ai_scroll.controls.append(
+                ft.Text("AI 分析失敗，請稍後再試。", size=13, color=ft.Colors.RED_400)
+            )
+            if modal_overlay.visible:
+                page.update()
+            return
+
+        # ── helper: dimmed section label with icon ──
+        def section_header(icon, label):
+            return ft.Container(
+                content=ft.Row([
+                    ft.Icon(icon, size=14, color=ft.Colors.BLUE_GREY_400),
+                    ft.Text(label, size=12, color=ft.Colors.BLUE_GREY_400, weight=ft.FontWeight.BOLD),
+                ], spacing=6),
+                padding=ft.padding.only(top=12, bottom=4),
+            )
+
+        # ── summary ──
+        if result.get("summary"):
+            modal_ai_scroll.controls += [
+                section_header(ft.Icons.SUMMARIZE, "摘要"),
+                ft.Container(
+                    content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
+                    padding=ft.padding.only(left=4),
+                ),
+            ]
+
+        # ── action required ──
+        if result.get("action_required"):
+            modal_ai_scroll.controls += [
+                section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "待辦事項"),
+                ft.Container(
+                    content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
+                    padding=ft.padding.only(left=4),
+                ),
+            ]
+
+        # ── event times ──
+        if result.get("event_times"):
+            modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "重要時間"))
+            for item in result["event_times"]:
+                modal_ai_scroll.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.SCHEDULE, size=13, color=ft.Colors.ORANGE_300),
+                            ft.Text(
+                                f"{item.get('label', '')}: {item.get('time', '')}",
+                                size=13, color=ft.Colors.ORANGE_300, selectable=True,
+                            ),
+                        ], spacing=6),
+                        padding=ft.padding.only(left=4, bottom=2),
+                    )
+                )
+
+        # ── urls ──
+        if result.get("urls"):
+            modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "相關連結"))
+            for item in result["urls"]:
+                modal_ai_scroll.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.OPEN_IN_NEW, size=13, color=ft.Colors.BLUE_300),
+                            ft.Text(
+                                item.get("label") or item.get("url", ""),
+                                size=13, color=ft.Colors.BLUE_300, selectable=True,
+                            ),
+                        ], spacing=6),
+                        padding=ft.padding.only(left=4, bottom=2),
+                    )
+                )
+
+        # ── key points ──
+        if result.get("key_points"):
+            modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "重點整理"))
+            for point in result["key_points"]:
+                modal_ai_scroll.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Text("•", size=13, color=ft.Colors.BLUE_GREY_300),
+                            ft.Text(point, size=13, color="#dddddd", selectable=True, expand=True),
+                        ], spacing=8),
+                        padding=ft.padding.only(left=4, bottom=2),
+                    )
+                )
+
+        if modal_overlay.visible:
+            page.update()
+
+    async def _analyze_modal_email(email_id, body, gen_id):
+        """Background task: serve detail analysis from DB cache or call AI if not cached."""
+        # check DB cache first — no AI call needed if already analyzed
+        cached = await asyncio.to_thread(get_detail_analysis, email_id)
+        if cached:
+            _render_ai_result(cached, gen_id)
+            return
+
+        _render_ai_result(None, gen_id)  # show "analyzing…" while waiting for AI
+        try:
+            result = await asyncio.to_thread(analyze_email_detail, body)
+            if result:
+                # persist so future opens are instant
+                await asyncio.to_thread(save_detail_analysis, email_id, result)
+                _render_ai_result(result, gen_id)
+            else:
+                _render_ai_result("error", gen_id)
+        except Exception as ex:
+            print(f"[WARN] Modal AI analysis failed: {ex}")
+            _render_ai_result("error", gen_id)
 
     # Stack layers (bottom → top):
     #   1. semi-transparent black backdrop (visual only)
     #   2. full-screen GestureDetector that closes modal on tap outside the box
     #      -> centered Container
-    #         -> inner GestureDetector that absorbs taps inside the 720×520 box
+    #         -> inner GestureDetector that absorbs taps inside the 720×540 box
     modal_overlay = ft.Stack(
         visible=False,
         expand=True,
@@ -160,7 +367,7 @@ def main(page: ft.Page):
                         on_tap=lambda e: None,
                         content=ft.Container(
                             width=720,
-                            height=520,
+                            height=540,
                             bgcolor="#1e1e1e",
                             border_radius=14,
                             border=ft.border.all(1, ft.Colors.OUTLINE_VARIANT),
@@ -169,21 +376,8 @@ def main(page: ft.Page):
                                 spacing=10,
                                 expand=True,
                                 controls=[
-                                    # row 1: subject title + close button
-                                    ft.Row(
-                                        controls=[
-                                            modal_subject,
-                                            ft.IconButton(
-                                                icon=ft.Icons.CLOSE,
-                                                icon_size=20,
-                                                icon_color=ft.Colors.OUTLINE,
-                                                padding=ft.Padding.all(4),
-                                                on_click=lambda e: close_modal(),
-                                            ),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
+                                    # row 1: subject title (close by clicking backdrop)
+                                    modal_subject,
                                     # row 2: sender name (left) + received time (right)
                                     ft.Row(
                                         controls=[modal_sender, modal_time],
@@ -191,15 +385,24 @@ def main(page: ft.Page):
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
                                     ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                                    # scrollable body — ListView stretches to full width so scrollbar stays at the right edge
-                                    ft.Container(
-                                        expand=True,
-                                        content=ft.ListView(
-                                            controls=[modal_body],
-                                            expand=True,
-                                            padding=0,
-                                            spacing=8,
-                                        ),
+                                    # raw content view (default) — expands to fill remaining space
+                                    modal_raw_view,
+                                    # AI analysis view — hidden until user switches tab
+                                    modal_ai_view,
+                                    # bottom bar: tab switcher pinned at bottom-right
+                                    ft.Row(
+                                        controls=[
+                                            ft.Container(expand=True),
+                                            ft.Container(
+                                                content=ft.Row(
+                                                    controls=[modal_raw_tab, modal_ai_tab],
+                                                    spacing=2,
+                                                ),
+                                                bgcolor="#2a2a2a",
+                                                border_radius=8,
+                                                padding=ft.padding.all(3),
+                                            ),
+                                        ],
                                     ),
                                 ],
                             ),
@@ -327,6 +530,18 @@ def main(page: ft.Page):
             await _call_with_ssl_retry(trash_email, email_id)
 
         async def on_double_tap(e):
+            # new open — increment generation to invalidate any previous AI task
+            modal_gen[0] += 1
+            this_gen = modal_gen[0]
+
+            # reset to raw tab, clear previous AI content
+            modal_view_state[0]    = "raw"
+            modal_raw_view.visible = True
+            modal_ai_view.visible  = False
+            _tab_on(modal_raw_tab_icon, modal_raw_tab)
+            _tab_off(modal_ai_tab_icon, modal_ai_tab)
+            modal_ai_scroll.controls.clear()
+
             # populate modal header and show it immediately
             modal_subject.value   = data['subject']
             modal_sender.value    = data['sender']
@@ -334,6 +549,8 @@ def main(page: ft.Page):
             modal_body.value      = ""
             modal_overlay.visible = True
             page.update()
+
+            body = ""
             try:
                 # only mark as read if the mail is currently unread
                 if data.get('is_unread'):
@@ -361,6 +578,11 @@ def main(page: ft.Page):
             finally:
                 # always refresh, even if something crashed
                 page.update()
+
+            # kick off AI analysis in background with the fetched body
+            # serves from DB cache if already analyzed; runs AI only on first open
+            if body and body.strip():
+                page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
 
         # --------------------
         # Card Layout

@@ -18,7 +18,8 @@ MODEL = "llama-3.3-70b-versatile"
 # Multi-key support
 _AVAILABLE_KEYS = [
     os.getenv("key1"),
-    os.getenv("key2")
+    os.getenv("key2"),
+    os.getenv("key3")
 ]
 _AVAILABLE_KEYS = [k for k in _AVAILABLE_KEYS if k]
 
@@ -50,8 +51,9 @@ def _load_prompt(filename):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
-MOODLE_CATEGORIZE = _load_prompt("moodle_categorize.txt")
-EMAIL_CATEGORIZE  = _load_prompt("email_categorize.txt")
+MOODLE_CATEGORIZE    = _load_prompt("moodle_categorize.txt")
+EMAIL_CATEGORIZE     = _load_prompt("email_categorize.txt")
+EMAIL_DETAIL_ANALYZE = _load_prompt("email_detail_analyze.txt")
 
 
 # Rate limiting
@@ -130,6 +132,56 @@ def categorize_email(email_body, is_moodle=False):
                 # key switched → loop continues with next key immediately
             else:
                 print(f"[DEBUG] Categorization failed: {e}")
+                break
+
+    return None
+
+
+def analyze_email_detail(email_body):
+    """Run a full structured analysis of one email.
+    Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
+    global LAST_API_CALL_TIME
+
+    # skip if all keys are already exhausted by the background categorization
+    if TPD_EXHAUSTED:
+        return None
+
+    user_content = f"Email body:\n{email_body[:4000]}"
+
+    elapsed = time.time() - LAST_API_CALL_TIME
+    if elapsed < MIN_INTERVAL:
+        time.sleep(MIN_INTERVAL - elapsed)
+
+    for _ in range(len(_AVAILABLE_KEYS)):
+        try:
+            response = _get_client().chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": EMAIL_DETAIL_ANALYZE},
+                    {"role": "user",   "content": user_content},
+                ],
+                temperature=0.1,
+                max_tokens=1000,  # raised from 600 — long responses (many events/urls) were truncating JSON
+            )
+
+            LAST_API_CALL_TIME = time.time()
+
+            raw = response.choices[0].message.content.strip()
+
+            # extract the JSON object robustly — handles markdown fences and any leading/trailing prose
+            match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+            if not match:
+                print(f"[DEBUG] Detail analysis: no JSON object found in response")
+                break
+            return json.loads(match.group())
+
+        except Exception as e:
+            error_msg = str(e)
+            if "429" in error_msg or "rate_limit" in error_msg.lower():
+                if _print_tpd_429(error_msg):
+                    break  # all keys exhausted
+            else:
+                print(f"[DEBUG] Detail analysis failed: {e}")
                 break
 
     return None
