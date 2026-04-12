@@ -4,6 +4,8 @@ import sys
 import ssl
 import asyncio
 import webbrowser
+import calendar as _cal
+from datetime import date as _date
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -257,7 +259,7 @@ def main(page: ft.Page):
                 padding=ft.Padding.only(top=4, bottom=4),
             )
 
-        # ── 摘要 ──
+        # 摘要 
         if result.get("summary"):
             modal_ai_scroll.controls += [
                 section_header(ft.Icons.SUMMARIZE, "摘要"),
@@ -749,16 +751,26 @@ def main(page: ft.Page):
         for tile, name in sidebar_tiles:
             tile.selected = (name == view)
 
-        # update the header icon and title to match the selected view
-        if view == "inbox":
-            header_icon.name = ft.Icons.INBOX
-            header_title.value = "Inbox"
-        elif view == "moodle":
-            header_icon.name = ft.Icons.SCHOOL
-            header_title.value = "Moodle"
+        # replace the ft.Icon object inside the wrapper (mutation of .name is unreliable in Flet)
+        _icon_map = {
+            "inbox":    (ft.Icons.INBOX,          "Inbox"),
+            "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
+            "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
+        }
+        icon_name, title_text = _icon_map.get(view, (ft.Icons.INBOX, view.capitalize()))
+        header_icon_wrapper.content = ft.Icon(icon_name, size=28, color=ft.Colors.WHITE)
+        header_title.value = title_text
 
-        render_current_view()
-        update_stats_display()
+        # toggle between email panel and calendar panel
+        is_calendar = (view == "calendar")
+        inbox_panel.visible    = not is_calendar
+        calendar_panel.visible = is_calendar
+
+        if not is_calendar:
+            render_current_view()
+            update_stats_display()
+        else:
+            page.update()
 
     # ====================
     # Email List Helpers
@@ -894,16 +906,20 @@ def main(page: ft.Page):
         leading=ft.Icon(ft.Icons.SCHOOL), title=ft.Text("Moodle"),
         on_click=lambda e: switch_view("moodle"),
     )
+    tile_calendar = ft.ListTile(
+        leading=ft.Icon(ft.Icons.CALENDAR_MONTH), title=ft.Text("Calendar"),
+        on_click=lambda e: switch_view("calendar"),
+    )
     # placeholder tiles — not yet wired to any view
-    tile_announcements = ft.ListTile(leading=ft.Icon(ft.Icons.CAMPAIGN), title=ft.Text("Announcements"))
-    tile_sent          = ft.ListTile(leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"))
-    tile_all           = ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"))
-    tile_trash         = ft.ListTile(leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"))
+    tile_sent  = ft.ListTile(leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"))
+    tile_all   = ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"))
+    tile_trash = ft.ListTile(leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"))
 
     # only tiles with an active view need to be in this list for selection highlighting
     sidebar_tiles = [
-        (tile_inbox, "inbox"),
-        (tile_moodle, "moodle"),
+        (tile_inbox,    "inbox"),
+        (tile_moodle,   "moodle"),
+        (tile_calendar, "calendar"),
     ]
 
     sidebar = ft.Container(
@@ -914,7 +930,7 @@ def main(page: ft.Page):
             ft.Divider(height=20),
             tile_inbox,
             tile_moodle,
-            tile_announcements,
+            tile_calendar,
             ft.Divider(height=20),
             tile_sent,
             tile_all,
@@ -923,8 +939,154 @@ def main(page: ft.Page):
     )
 
     # ====================
+    # Calendar Panel
+    # ====================
+
+    def _build_calendar_months():
+        """Build a flat list of Flet controls for 14 months starting from today."""
+        today  = _date.today()
+        month_names = ["Jan","Feb","Mar","Apr","May","Jun",
+                       "Jul","Aug","Sep","Oct","Nov","Dec"]
+        sections = []
+
+        for offset in range(14):
+            raw   = today.month - 1 + offset
+            year  = today.year + raw // 12
+            month = raw % 12 + 1
+
+            # month title
+            sections.append(
+                ft.Container(
+                    content=ft.Text(
+                        f"{month_names[month - 1]} {year}",
+                        size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE,
+                    ),
+                    padding=ft.Padding.only(top=20, bottom=8, left=4),
+                )
+            )
+
+            # one row per week
+            for week in _cal.monthcalendar(year, month):
+                cells = []
+                for col, day in enumerate(week):
+                    is_sun = (col == 0)
+                    is_sat = (col == 6)
+
+                    if day == 0:
+                        # day belongs to prev/next month — empty dark cell
+                        cells.append(
+                            ft.Container(expand=True, height=80, bgcolor="#161616", border_radius=6)
+                        )
+                    else:
+                        is_today = (
+                            year == today.year and
+                            month == today.month and
+                            day == today.day
+                        )
+                        if is_today:
+                            num_color, num_bg = ft.Colors.WHITE, ft.Colors.BLUE_600
+                        elif is_sun:
+                            num_color, num_bg = ft.Colors.RED_300, None
+                        elif is_sat:
+                            num_color, num_bg = ft.Colors.BLUE_300, None
+                        else:
+                            num_color, num_bg = ft.Colors.BLUE_GREY_300, None
+
+                        cells.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Container(
+                                        content=ft.Text(
+                                            str(day), size=12,
+                                            color=num_color,
+                                            weight=ft.FontWeight.BOLD,
+                                            text_align=ft.TextAlign.CENTER,
+                                        ),
+                                        bgcolor=num_bg,
+                                        border_radius=12,
+                                        width=24, height=24,
+                                        alignment=ft.Alignment(0, 0),
+                                    ),
+                                    # event entries will be populated in a future update
+                                ], spacing=2),
+                                expand=True,
+                                height=80,
+                                bgcolor="#1e1e1e",
+                                border_radius=6,
+                                padding=ft.Padding.all(6),
+                            )
+                        )
+
+                sections.append(ft.Row(controls=cells, spacing=2))
+
+            sections.append(ft.Divider(height=8, color="transparent"))
+
+        return sections
+
+    # sticky day-of-week header above the scrollable grid
+    cal_header = ft.Row(
+        controls=[
+            ft.Container(
+                content=ft.Text(
+                    label, size=12, color=color,
+                    weight=ft.FontWeight.BOLD,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding.symmetric(vertical=6),
+            )
+            for label, color in [
+                ("Sun", ft.Colors.RED_300),
+                ("Mon", ft.Colors.BLUE_GREY_400),
+                ("Tue", ft.Colors.BLUE_GREY_400),
+                ("Wed", ft.Colors.BLUE_GREY_400),
+                ("Thu", ft.Colors.BLUE_GREY_400),
+                ("Fri", ft.Colors.BLUE_GREY_400),
+                ("Sat", ft.Colors.BLUE_300),
+            ]
+        ],
+        spacing=2,
+    )
+
+    calendar_panel = ft.Column(
+        expand=True,
+        visible=False,
+        spacing=0,
+        controls=[
+            cal_header,
+            ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+            ft.ListView(
+                expand=True,
+                padding=ft.Padding.only(right=8),
+                spacing=0,
+                controls=_build_calendar_months(),
+            ),
+        ],
+    )
+
+    # ====================
     # Main Content Area
     # ====================
+
+    # wrap icon in a Container so we can swap the inner ft.Icon object reliably
+    # (mutating ft.Icon.name alone does not always trigger a Flet re-render)
+    header_icon_wrapper = ft.Container(
+        content=ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)
+    )
+    header_title = ft.Text("Inbox", size=30, weight="bold")
+
+    # inbox_panel wraps stats badges + email list — hidden when in calendar view
+    inbox_panel = ft.Column(
+        expand=True,
+        visible=True,
+        spacing=0,
+        controls=[
+            ft.Container(content=stats_row, padding=ft.Padding.only(left=10)),
+            ft.Divider(height=8, color="transparent"),
+            email_list_view,
+        ],
+    )
 
     main_content = ft.Container(
         expand=True, padding=30, bgcolor="#121212",
@@ -935,8 +1097,8 @@ def main(page: ft.Page):
                 ft.Row([
                     ft.Container(
                         content=ft.Row([
-                            (header_icon := ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)),
-                            (header_title := ft.Text("Inbox", size=30, weight="bold")),
+                            header_icon_wrapper,
+                            header_title,
                         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=ft.Padding.only(left=10, right=10),
                     ),
@@ -946,13 +1108,8 @@ def main(page: ft.Page):
                         on_click=on_refresh_click,
                     ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                # stats badges sit below the title
-                ft.Container(
-                    content=stats_row,
-                    padding=ft.Padding.only(left=10),
-                ),
-                ft.Divider(height=0, color="transparent"),
-                email_list_view,
+                inbox_panel,
+                calendar_panel,
             ]
         )
     )
