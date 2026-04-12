@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
-from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis
+from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
 from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key
@@ -404,6 +404,58 @@ def main(page: ft.Page):
             print(f"[WARN] Modal AI analysis failed: {ex}")
             _render_ai_result("error", gen_id, email_id=email_id, category=cat)
 
+    async def _open_modal(data):
+        """Open the email detail modal for any email data dict.
+        Shared by inbox card double-tap and calendar event double-tap."""
+        email_id = data['id']
+
+        modal_gen[0] += 1
+        this_gen = modal_gen[0]
+
+        # reset to raw tab, clear previous AI content
+        modal_view_state[0]    = "raw"
+        modal_raw_view.visible = True
+        modal_ai_view.visible  = False
+        _tab_on(modal_raw_tab_icon, modal_raw_tab)
+        _tab_off(modal_ai_tab_icon, modal_ai_tab)
+        modal_ai_scroll.controls.clear()
+
+        # populate modal header and show it immediately
+        modal_subject.value   = data['subject']
+        modal_sender.value    = data['sender']
+        modal_time.value      = data['time']
+        modal_body.value      = ""
+        modal_category[0]     = data.get('category')
+        modal_overlay.visible = True
+        page.update()
+
+        body = ""
+        try:
+            # mark as read in Gmail if still unread
+            if data.get('is_unread'):
+                data['is_unread'] = False
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                update_stats_display()
+                try:
+                    await asyncio.to_thread(mark_as_read, svc["service"], email_id)
+                except Exception as ex:
+                    print(f"[WARN] 標示已讀失敗: {ex}")
+
+            # fresh service so it doesn't race with background fetch
+            modal_service = await asyncio.to_thread(get_gmail_service)
+            msg_full = await asyncio.to_thread(
+                modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
+            )
+            body = get_email_body(msg_full.get("payload", {}))
+            modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
+        except Exception as ex:
+            modal_body.value = f"(Failed to load email content: {ex})"
+        finally:
+            page.update()
+
+        if body and body.strip():
+            page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
+
     # Stack layers (bottom → top):
     #   1. semi-transparent black backdrop (visual only)
     #   2. full-screen GestureDetector that closes modal on tap outside the box
@@ -592,60 +644,10 @@ def main(page: ft.Page):
             await _call_with_ssl_retry(trash_email, email_id)
 
         async def on_double_tap(e):
-            # new open — increment generation to invalidate any previous AI task
-            modal_gen[0] += 1
-            this_gen = modal_gen[0]
-
-            # reset to raw tab, clear previous AI content
-            modal_view_state[0]    = "raw"
-            modal_raw_view.visible = True
-            modal_ai_view.visible  = False
-            _tab_on(modal_raw_tab_icon, modal_raw_tab)
-            _tab_off(modal_ai_tab_icon, modal_ai_tab)
-            modal_ai_scroll.controls.clear()
-
-            # populate modal header and show it immediately
-            modal_subject.value   = data['subject']
-            modal_sender.value    = data['sender']
-            modal_time.value      = data['time']
-            modal_body.value      = ""
-            modal_category[0]     = data.get('category')
-            modal_overlay.visible = True
-            page.update()
-
-            body = ""
-            try:
-                # only mark as read if the mail is currently unread
-                if data.get('is_unread'):
-                    card_inner.bgcolor = "#2a2a2a"
-                    data['is_unread'] = False
-                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
-                    update_stats_display()
-                    try:
-                        await _call_with_ssl_retry(mark_as_read, email_id)
-                    except Exception as ex:
-                        print(f"[WARN] 標示已讀失敗: {ex}")
-
-                # build a fresh service with its own SSL connection so it doesn't
-                # race with the background fetch that shares svc["service"]
-                modal_service = await asyncio.to_thread(get_gmail_service)
-                # fetch the full email (not just metadata)
-                msg_full = await asyncio.to_thread(
-                    modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
-                )
-                # decode plain-text body from MIME payload
-                body = get_email_body(msg_full.get("payload", {}))
-                modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
-            except Exception as ex:
-                modal_body.value = f"(Failed to load email content: {ex})"
-            finally:
-                # always refresh, even if something crashed
-                page.update()
-
-            # kick off AI analysis in background with the fetched body
-            # serves from DB cache if already analyzed; runs AI only on first open
-            if body and body.strip():
-                page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
+            # update card read visual immediately (card_inner is local to this closure)
+            if data.get('is_unread'):
+                card_inner.bgcolor = "#2a2a2a"
+            await _open_modal(data)
 
         # --------------------
         # Card Layout
@@ -994,9 +996,30 @@ def main(page: ft.Page):
     # scrollable inner list — rebuilt with fresh event data on every view switch
     cal_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=8), spacing=0)
 
+    def _on_calendar_event_open(email_id):
+        """Called when user double-taps a calendar event chip."""
+        data = next((e for e in all_emails if e['id'] == email_id), None)
+        if data is None:
+            # Email not loaded this session — reconstruct from cache DB
+            cached = get_cached_result(email_id)
+            if cached:
+                data = {
+                    "id":       email_id,
+                    "subject":  cached.get("summary") or "(No Subject)",
+                    "sender":   cached.get("sender") or "Unknown",
+                    "time":     cached.get("time") or "",
+                    "category": cached.get("category"),
+                    "is_unread": False,
+                }
+        if data:
+            page.run_task(_open_modal, data)
+
     def _refresh_calendar():
         """Reload all events from DB and rebuild the calendar grid in cal_scroll."""
-        cal_scroll.controls = build_calendar_months(on_delete_event=_refresh_calendar)
+        cal_scroll.controls = build_calendar_months(
+            on_delete_event=_refresh_calendar,
+            on_open_event=_on_calendar_event_open,
+        )
         page.update()
 
     # sticky day-of-week header above the scrollable grid

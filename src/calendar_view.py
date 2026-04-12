@@ -78,7 +78,7 @@ def _parse_date_key(event_time: str) -> str | None:
 # Event chip
 # ---------------------------------------------------------------------------
 
-def _event_chip(ev: dict, on_delete) -> ft.Control:
+def _event_chip(ev: dict, on_delete, on_open) -> ft.Control:
     """One clickable event row inside a day cell."""
     is_moodle = ev["source"] == "moodle_auto"
     # orange background for moodle auto-added, blue for manually added
@@ -95,9 +95,12 @@ def _event_chip(ev: dict, on_delete) -> ft.Control:
 
     def _delete(e, _id=ev["id"]):
         delete_event(_id)
-        on_delete()   # caller rebuilds the calendar
+        on_delete()
 
-    return ft.Container(
+    def _open(e, _eid=ev["email_id"]):
+        on_open(_eid)
+
+    chip = ft.Container(
         content=ft.Row(
             [
                 ft.Text(
@@ -122,12 +125,19 @@ def _event_chip(ev: dict, on_delete) -> ft.Control:
         bgcolor=bg_color,
     )
 
+    # double-tap the chip to open the source email in the detail modal
+    return ft.GestureDetector(
+        mouse_cursor=ft.MouseCursor.CLICK,
+        on_double_tap=_open,
+        content=chip,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Main builder
 # ---------------------------------------------------------------------------
 
-def build_calendar_months(on_delete_event) -> list:
+def build_calendar_months(on_delete_event, on_open_event) -> list:
     """Return a list of Flet controls representing 14 months of calendar,
     with events from calendar_db shown inside each day cell.
 
@@ -199,7 +209,7 @@ def build_calendar_months(on_delete_event) -> list:
                 day_events = events_by_date.get(date_key, [])
 
                 event_chips = [
-                    _event_chip(ev, on_delete_event)
+                    _event_chip(ev, on_delete_event, on_open_event)
                     for ev in day_events
                 ]
 
