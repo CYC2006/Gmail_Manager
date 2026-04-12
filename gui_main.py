@@ -228,6 +228,9 @@ def main(page: ft.Page):
         # list wrapper so the star handler can toggle the value inside a closure
         is_starred_state = [data.get('is_starred', False)]
 
+        # list wrapper so archive/trash lambdas can reference card before it's created
+        card_ref = [None]
+
         # --------------------
         # Card Action Handlers
         # --------------------
@@ -370,7 +373,7 @@ def main(page: ft.Page):
                                         padding=ft.Padding.all(2),
                                         icon_color=ft.Colors.YELLOW_600,
                                         tooltip="加星號",
-                                        on_click=lambda e: page.run_task(on_star, e, card),
+                                        on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
                                     ),
                                     ft.IconButton(
                                         icon=ft.Icons.ARCHIVE,
@@ -378,7 +381,7 @@ def main(page: ft.Page):
                                         padding=ft.Padding.all(2),
                                         icon_color=ft.Colors.GREEN_400,
                                         tooltip="封存",
-                                        on_click=lambda e: page.run_task(on_archive, e, card),
+                                        on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
                                     ),
                                     ft.IconButton(
                                         icon=ft.Icons.DELETE,
@@ -386,7 +389,7 @@ def main(page: ft.Page):
                                         padding=ft.Padding.all(2),
                                         icon_color=ft.Colors.RED_400,
                                         tooltip="刪除",
-                                        on_click=lambda e: page.run_task(on_trash, e, card),
+                                        on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
                                     ),
                                 ],
                                 spacing=0,
@@ -417,11 +420,14 @@ def main(page: ft.Page):
             margin=ft.Margin.symmetric(horizontal=10, vertical=3),
             content=card_inner,
         )
-        # wrap in GestureDetector so double-tap opens the detail modal
-        return ft.GestureDetector(
+        gesture = ft.GestureDetector(
             on_double_tap=lambda e: page.run_task(on_double_tap, e),
             content=card,
         )
+        # fill the forward reference with the outermost widget —
+        # email_list_view holds GestureDetectors, not Cards
+        card_ref[0] = gesture
+        return gesture
 
     # ====================
     # View Management
