@@ -49,6 +49,9 @@ def main(page: ft.Page):
     PAGE_SIZE = 50
     MAX_PAGES = 5   # maximum inbox pages fetched in the background (50 emails each)
 
+    # mirrors the API stats and is adjusted locally on every user action
+    live_stats = {"inbox": 0, "unread": 0, "starred": 0}
+
     # ====================
     # Stats Bar
     # ====================
@@ -97,6 +100,26 @@ def main(page: ft.Page):
     inbox_text   = stats_row.controls[0].content.controls[1]
     unread_text  = stats_row.controls[1].content.controls[1]
     starred_text = stats_row.controls[2].content.controls[1]
+
+    def update_stats_display():
+        # for inbox: use live_stats which mirrors the API count adjusted by user actions
+        if current_view[0] == "inbox":
+            stats_row.controls[0].tooltip = "Inbox 總數"
+            stats_row.controls[1].tooltip = "未讀數"
+            stats_row.controls[2].tooltip = "星號數"
+            inbox_text.value   = str(live_stats["inbox"])
+            unread_text.value  = str(live_stats["unread"])
+            starred_text.value = str(live_stats["starred"])
+        # for moodle: recount directly from all_emails filtered to moodle only
+        elif current_view[0] == "moodle":
+            stats_row.controls[0].tooltip = "Moodle 總數"
+            stats_row.controls[1].tooltip = "Moodle 未讀數"
+            stats_row.controls[2].tooltip = "Moodle 星號數"
+            moodle = [e for e in all_emails if "moodle" in e['sender'].lower()]
+            inbox_text.value   = str(len(moodle))
+            unread_text.value  = str(sum(1 for e in moodle if e.get('is_unread')))
+            starred_text.value = str(sum(1 for e in moodle if e.get('is_starred')))
+        page.update()
 
     # ====================
     # Email Detail Modal
@@ -249,8 +272,11 @@ def main(page: ft.Page):
 
         async def on_mark_read(e):
             # update card background color immediately before the API call
-            e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
-            page.update()
+            if data.get('is_unread'):
+                e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
+                data['is_unread'] = False
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                update_stats_display()
             await _call_with_ssl_retry(mark_as_read, email_id)
 
         async def on_star(e, card_ref):
@@ -258,7 +284,12 @@ def main(page: ft.Page):
             is_starred_state[0] = not is_starred_state[0]
             e.control.icon = ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER
             e.control.icon_color = ft.Colors.YELLOW_400 if is_starred_state[0] else ft.Colors.YELLOW_600
-            page.update()
+            data['is_starred'] = is_starred_state[0]
+            if is_starred_state[0]:
+                live_stats["starred"] += 1
+            else:
+                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            update_stats_display()
             await _call_with_ssl_retry(toggle_star, email_id, is_starred_state[0])
 
         async def on_archive(e, card_ref):
@@ -268,7 +299,13 @@ def main(page: ft.Page):
                 shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
-            page.update()
+            # adjust counts for the removed email
+            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+            if data.get('is_unread'):
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+            if data.get('is_starred'):
+                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            update_stats_display()
             await _call_with_ssl_retry(archive_email, email_id)
 
         async def on_trash(e, card_ref):
@@ -278,7 +315,13 @@ def main(page: ft.Page):
                 shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
-            page.update()
+            # adjust counts for the removed email
+            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+            if data.get('is_unread'):
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+            if data.get('is_starred'):
+                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            update_stats_display()
             # remove from local cache before trashing on Gmail
             await asyncio.to_thread(delete_analysis, email_id)
             await _call_with_ssl_retry(trash_email, email_id)
@@ -295,7 +338,9 @@ def main(page: ft.Page):
                 # only mark as read if the mail is currently unread
                 if data.get('is_unread'):
                     card_inner.bgcolor = "#2a2a2a"
-                    page.update()
+                    data['is_unread'] = False
+                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                    update_stats_display()
                     try:
                         await _call_with_ssl_retry(mark_as_read, email_id)
                     except Exception as ex:
@@ -450,7 +495,7 @@ def main(page: ft.Page):
                 continue
             email_list_view.controls.append(create_email_card(data))
             shown_email_ids[data['id']] = data.get('_index', float('inf'))
-        page.update()
+        update_stats_display()
 
     def fill_next_email():
         # when a card is removed (archived/trashed), pull the next buffered email into view
@@ -479,6 +524,7 @@ def main(page: ft.Page):
             header_title.value = "Moodle"
 
         render_current_view()
+        update_stats_display()
 
     # ====================
     # Email List Helpers
@@ -513,6 +559,7 @@ def main(page: ft.Page):
         position = sum(1 for idx in shown_email_ids.values() if idx < new_idx)
         email_list_view.controls.insert(position, create_email_card(email_data))
         shown_email_ids[email_data['id']] = new_idx
+        update_stats_display()
 
     # ====================
     # Fetch Tasks
@@ -563,10 +610,10 @@ def main(page: ft.Page):
 
             # update the stats badges (inbox total / unread / starred)
             stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
-            inbox_text.value   = str(stats["inbox"])
-            unread_text.value  = str(stats["unread"])
-            starred_text.value = str(stats["starred"])
-            page.update()
+            live_stats["inbox"]   = stats["inbox"]
+            live_stats["unread"]  = stats["unread"]
+            live_stats["starred"] = stats["starred"]
+            update_stats_display()
 
             # clear previous results before loading the fresh batch
             all_emails.clear()
@@ -650,25 +697,27 @@ def main(page: ft.Page):
         content=ft.Column(
             expand=True,
             controls=[
-                # top bar: header icon + title + stats badges on the left, refresh button on the right
+                # top bar: header icon + title on the left, refresh button on the right
                 ft.Row([
-                    ft.Row([
-                        ft.Container(
-                            content=ft.Row([
-                                (header_icon := ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)),
-                                (header_title := ft.Text("Inbox", size=30, weight="bold")),
-                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            padding=ft.Padding.only(left=10, right=10),
-                        ),
-                        stats_row,
-                    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Container(
+                        content=ft.Row([
+                            (header_icon := ft.Icon(ft.Icons.INBOX, size=28, color=ft.Colors.WHITE)),
+                            (header_title := ft.Text("Inbox", size=30, weight="bold")),
+                        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.Padding.only(left=10, right=10),
+                    ),
                     ft.IconButton(
                         icon=ft.Icons.REFRESH,
                         icon_color=ft.Colors.BLUE_200,
                         on_click=on_refresh_click,
                     ),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Divider(height=20, color="transparent"),
+                # stats badges sit below the title
+                ft.Container(
+                    content=stats_row,
+                    padding=ft.Padding.only(left=10),
+                ),
+                ft.Divider(height=0, color="transparent"),
                 email_list_view,
             ]
         )
