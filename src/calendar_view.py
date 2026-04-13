@@ -138,11 +138,9 @@ def _event_chip(ev: dict, on_delete, on_open) -> ft.Control:
 # ---------------------------------------------------------------------------
 
 def build_calendar_months(on_delete_event, on_open_event) -> list:
-    """Return a list of Flet controls representing 14 months of calendar,
-    with events from calendar_db shown inside each day cell.
-
-    on_delete_event() is called after a user removes an event so the caller
-    can rebuild the calendar panel.
+    """Return a list of Flet controls for 14 months (Month-2 to Month+11).
+    The current month's title container is tagged with key='current_month'
+    for use with scroll_to(scroll_key='current_month').
     """
     today = _date.today()
 
@@ -155,14 +153,17 @@ def build_calendar_months(on_delete_event, on_open_event) -> list:
 
     sections = []
 
-    for offset in range(14):
+    # Build current + future months first (M+0 to M+11), then past months (M-2, M-1)
+    # so the list always opens at the current month without needing scroll_to.
+    for offset in range(-2, 12):  # M-2 to M+11 (14 months)
         raw   = today.month - 1 + offset
         year  = today.year + raw // 12
         month = raw % 12 + 1
 
-        # month title
+        is_current = (year == today.year and month == today.month)
         sections.append(
             ft.Container(
+                key=ft.ScrollKey("current_month") if is_current else None,
                 content=ft.Text(
                     f"{MONTH_NAMES[month - 1]} {year}",
                     size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE,

@@ -183,9 +183,9 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                         "event_time": None, "action_required": None,
                     })
 
-                    # auto-extract event times only for Moodle categories that have a meaningful date
-                    # 作業公布/成績公布/繳交確認 are informational — no calendar event needed
-                    _CAL_WORTHY = {"作業死線", "停課通知", "考試相關"}
+                    # auto-extract event times only for categories with a meaningful date
+                    # 作業公布/作業解答/成績公布/繳交確認/考試相關 are informational — no calendar event needed
+                    _CAL_WORTHY = {"作業死線", "停課通知", "考試時間"}
                     if is_moodle and category in _CAL_WORTHY:
                         print(f"[CAL] Extracting events from Moodle mail: {subject[:30]}...")
                         events = extract_moodle_events(email_body)

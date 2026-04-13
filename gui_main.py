@@ -14,7 +14,7 @@ from src.email_actions import mark_as_read, toggle_star, archive_email, trash_em
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
-from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key
+from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key, delete_events_by_email_id
 from src.calendar_view import build_calendar_months
 
 def main(page: ft.Page):
@@ -639,8 +639,9 @@ def main(page: ft.Page):
             if data.get('is_starred'):
                 live_stats["starred"] = max(0, live_stats["starred"] - 1)
             update_stats_display()
-            # remove from local cache before trashing on Gmail
+            # remove from local cache and calendar before trashing on Gmail
             await asyncio.to_thread(delete_analysis, email_id)
+            await asyncio.to_thread(delete_events_by_email_id, email_id)
             await _call_with_ssl_retry(trash_email, email_id)
 
         async def on_double_tap(e):
@@ -1002,7 +1003,7 @@ def main(page: ft.Page):
     # ====================
 
     # scrollable inner list — rebuilt with fresh event data on every view switch
-    cal_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=8), spacing=0)
+    cal_scroll = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
 
     def _on_calendar_event_open(email_id):
         """Called when user double-taps a calendar event chip."""
@@ -1022,6 +1023,10 @@ def main(page: ft.Page):
         if data:
             page.run_task(_open_modal, data)
 
+    async def _scroll_to_current_month():
+        await asyncio.sleep(0.1)
+        await cal_scroll.scroll_to(scroll_key="current_month", duration=0)
+
     def _refresh_calendar():
         """Reload all events from DB and rebuild the calendar grid in cal_scroll."""
         cal_scroll.controls = build_calendar_months(
@@ -1029,6 +1034,7 @@ def main(page: ft.Page):
             on_open_event=_on_calendar_event_open,
         )
         page.update()
+        page.run_task(_scroll_to_current_month)
 
     # sticky day-of-week header above the scrollable grid
     cal_header = ft.Row(
