@@ -5,7 +5,7 @@ import time
 from groq import Groq
 from dotenv import load_dotenv
 
-# Load hidden variables in .env
+# Load hidden variables in .env (fallback for dev)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT_DIR, '.env')
 load_dotenv(dotenv_path=ENV_PATH)
@@ -15,21 +15,53 @@ PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts"
 MODEL = "llama-3.3-70b-versatile"
 
 
-# Multi-key support
-_AVAILABLE_KEYS = [
-    os.getenv("key1"),
-    os.getenv("key2"),
-    os.getenv("key3")
-]
-_AVAILABLE_KEYS = [k for k in _AVAILABLE_KEYS if k]
+def _load_verified_keys() -> list[str]:
+    """Load only verified keys from config.json.
+    config.json is written exclusively by _verify_all_and_save()
+    which filters to verified-only before writing — so every key
+    here has passed a live Groq API check.
+    """
+    try:
+        from src.config_manager import get_groq_api_keys
+        return get_groq_api_keys()
+    except Exception:
+        return []
 
-if not _AVAILABLE_KEYS:
-     raise ValueError("no GROQ API KEY found in .env")
 
+def _load_keys_with_dev_fallback() -> list[str]:
+    """For cold startup only: try config first, fall back to .env for dev use."""
+    keys = _load_verified_keys()
+    if keys:
+        return keys
+    # dev fallback — .env keys are NOT verified, only used when config is empty
+    dev_keys = [os.getenv("key1"), os.getenv("key2"), os.getenv("key3")]
+    dev_keys = [k for k in dev_keys if k]
+    if dev_keys:
+        print("[KEY] Warning: using unverified .env keys. Add verified keys in Settings → API Keys.")
+    return dev_keys
+
+
+# Multi-key support — reloaded on demand via reload_keys()
+_AVAILABLE_KEYS: list[str] = _load_keys_with_dev_fallback()
 _current_key_idx = 0
+
+
+def reload_keys():
+    """Reload only verified keys from config.json.
+    Called after the user saves keys in Settings — guaranteed verified-only.
+    Does NOT fall back to .env so unverified keys can never slip in at runtime.
+    """
+    global _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED
+    _AVAILABLE_KEYS  = _load_verified_keys()
+    _current_key_idx = 0
+    TPD_EXHAUSTED    = False
+    print(f"[KEY] Reloaded {len(_AVAILABLE_KEYS)} verified API key(s) from config.")
+
 
 def _get_client() -> Groq:
     """Return a Groq client for the currently active key."""
+    if not _AVAILABLE_KEYS:
+        raise RuntimeError("No API keys available. Please add a key in Settings → API Keys.")
     return Groq(api_key=_AVAILABLE_KEYS[_current_key_idx])
 
 def _try_switch_key() -> bool:
@@ -240,3 +272,29 @@ def analyze_email_detail(email_body):
                 break
 
     return None
+
+
+
+def verify_api_key(key: str) -> str:
+    """Test a Groq API key with a 1-token request.
+
+    Returns:
+        "verified"   — key accepted by Groq
+        "invalid"    — authentication error (wrong/expired key)
+        "unverified" — network or unknown error, could not confirm
+    """
+    if not key or not key.strip():
+        return "unverified"
+    try:
+        client = Groq(api_key=key.strip())
+        client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=1,
+        )
+        return "verified"
+    except Exception as e:
+        msg = str(e).lower()
+        if "401" in msg or "invalid_api_key" in msg or "authentication" in msg or "api key" in msg:
+            return "invalid"
+        return "unverified"

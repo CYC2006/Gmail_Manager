@@ -16,6 +16,7 @@ from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
 from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key, delete_events_by_email_id
 from src.calendar_view import build_calendar_months
+from src.settings.api_keys import build_api_keys_tab
 
 def main(page: ft.Page):
 
@@ -819,12 +820,15 @@ def main(page: ft.Page):
         calendar_panel.visible    = view == "calendar"
         preferences_panel.visible = False
         settings_panel.visible    = view == "settings"
+        header_refresh_btn.visible = view != "settings"
 
         if view in ("inbox", "moodle"):
             render_current_view()
             update_stats_display()
         elif view == "calendar":
             _refresh_calendar()
+        elif view == "settings":
+            page.run_task(_api_tab.auto_verify)
 
     # ====================
     # Email List Helpers
@@ -940,6 +944,9 @@ def main(page: ft.Page):
             import traceback
             traceback.print_exc()
             print(f"[ERROR] Fetch failed: {ex}")
+
+    _api_tab = build_api_keys_tab(page)
+    page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
         # increment gen id to cancel any in-progress background fetch tasks
@@ -1085,6 +1092,8 @@ def main(page: ft.Page):
             alignment=ft.Alignment(0, 0),
         )
 
+
+
     settings_content = ft.Container(expand=True, content=_settings_placeholder("Appearance"))
 
     _TAB_DEFS = [
@@ -1103,10 +1112,14 @@ def main(page: ft.Page):
             shape=ft.RoundedRectangleBorder(radius=6),
         )
 
+    _tab_content_map = {
+        "api_keys": lambda: _api_tab.content,
+    }
     def _settings_tab_btn(label, key, icon):
         def on_click(e):
             settings_tab_state[0] = key
-            settings_content.content = _settings_placeholder(label)
+            builder = _tab_content_map.get(key)
+            settings_content.content = builder() if builder else _settings_placeholder(label)
             for k, btn in _stab_btns.items():
                 btn.style = _stab_style(k == key)
             page.update()
@@ -1174,6 +1187,12 @@ def main(page: ft.Page):
         ],
     )
 
+    header_refresh_btn = ft.IconButton(
+        icon=ft.Icons.REFRESH,
+        icon_color=ft.Colors.BLUE_200,
+        on_click=on_refresh_click,
+    )
+
     main_content = ft.Container(
         expand=True, padding=30, bgcolor="#121212",
         content=ft.Column(
@@ -1188,11 +1207,7 @@ def main(page: ft.Page):
                         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=ft.Padding.only(left=10, right=10),
                     ),
-                    ft.IconButton(
-                        icon=ft.Icons.REFRESH,
-                        icon_color=ft.Colors.BLUE_200,
-                        on_click=on_refresh_click,
-                    ),
+                    header_refresh_btn,
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 inbox_panel,
                 calendar_panel,

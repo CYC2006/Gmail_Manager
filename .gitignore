@@ -1,8 +1,9 @@
 # =========================
-# Credentials
+# Credentials & user data
 # =========================
 credentials.json
 token.json
+data/config.json
 
 # =========================
 # Python virtual environment and cache
