@@ -84,10 +84,11 @@ def build_api_keys_tab(page: ft.Page) -> SimpleNamespace:
     """
 
     # ---- state ----
-    _key_fields:  list[ft.TextField]  = []
-    _key_badges:  list[ft.Container]  = []
-    _keys_list   = ft.Column(spacing=10)
-    _saved_state = [[]]   # mutable single-element list for closure mutation
+    _key_fields:    list[ft.TextField] = []
+    _key_badges:    list[ft.Container] = []
+    _keys_list      = ft.Column(spacing=10)
+    _saved_state    = [[]]   # mutable single-element list for closure mutation
+    _verified_vals: list[str] = []  # value that was confirmed verified per slot
 
     # ---- helpers ----
 
@@ -138,39 +139,61 @@ def build_api_keys_tab(page: ft.Page) -> SimpleNamespace:
         if len(_key_fields) > 1:
             _key_fields.pop()
             _key_badges.pop()
+            if _verified_vals:
+                _verified_vals.pop()
             _rebuild_list()
 
     def _on_plus(e):
         if len(_key_fields) < 5:
             _key_fields.append(_make_key_field(len(_key_fields) + 1))
             _key_badges.append(_make_badge("unverified"))
+            _verified_vals.append("")
             _rebuild_list()
 
     # ---- async verify flows ----
 
     async def auto_verify():
-        """Silently verify all filled keys; updates badges but does NOT save."""
-        for field, badge in zip(_key_fields, _key_badges):
-            if (field.value or "").strip():
+        """Silently verify all filled keys; updates badges but does NOT save.
+        Skips keys whose value hasn't changed since last verified result."""
+        for i, (field, badge) in enumerate(zip(_key_fields, _key_badges)):
+            val = (field.value or "").strip()
+            already_verified = (
+                val and val == _verified_vals[i] and _badge_status_of(badge) == "verified"
+            )
+            if val and not already_verified:
                 _set_badge_status(badge, "checking")
         page.update()
-        for field, badge in zip(_key_fields, _key_badges):
+        for i, (field, badge) in enumerate(zip(_key_fields, _key_badges)):
             val = (field.value or "").strip()
-            if val:
-                status = await asyncio.to_thread(verify_api_key, val)
-                _set_badge_status(badge, status)
-                page.update()
+            if not val:
+                continue
+            if val == _verified_vals[i] and _badge_status_of(badge) == "verified":
+                continue  # unchanged — skip API call
+            status = await asyncio.to_thread(verify_api_key, val)
+            _set_badge_status(badge, status)
+            if status == "verified":
+                _verified_vals[i] = val
+            page.update()
 
     async def _verify_all_and_save():
-        """Verify each non-empty key, update badges, then persist only verified ones."""
-        for field, badge in zip(_key_fields, _key_badges):
-            if (field.value or "").strip():
+        """Verify each non-empty key, update badges, then persist only verified ones.
+        Skips re-verification for keys whose value hasn't changed since last verified."""
+        for i, (field, badge) in enumerate(zip(_key_fields, _key_badges)):
+            val = (field.value or "").strip()
+            already_verified = (
+                val and val == _verified_vals[i] and _badge_status_of(badge) == "verified"
+            )
+            if val and not already_verified:
                 _set_badge_status(badge, "checking")
         page.update()
-        for field, badge in zip(_key_fields, _key_badges):
+        for i, (field, badge) in enumerate(zip(_key_fields, _key_badges)):
             val = (field.value or "").strip()
+            if val and val == _verified_vals[i] and _badge_status_of(badge) == "verified":
+                continue  # unchanged verified key — skip API call
             if val:
                 status = await asyncio.to_thread(verify_api_key, val)
+                if status == "verified":
+                    _verified_vals[i] = val
             else:
                 status = "unverified"
             _set_badge_status(badge, status)
@@ -253,6 +276,7 @@ def build_api_keys_tab(page: ft.Page) -> SimpleNamespace:
         field.value = val
         _key_fields.append(field)
         _key_badges.append(_make_badge("verified" if val.strip() else "unverified"))
+        _verified_vals.append(val.strip())  # saved keys are already verified
     _saved_state[0] = _current_values()
     _keys_list.controls = [
         ft.Row([f, b], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
