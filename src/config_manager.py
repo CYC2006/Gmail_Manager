@@ -107,3 +107,5 @@ def save_custom_preferences(customs: list[dict]):
     prefs = load_user_prefs()
     prefs["custom_preferences"] = customs
     save_user_prefs(prefs)
+
+

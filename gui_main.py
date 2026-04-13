@@ -5,6 +5,7 @@ import ssl
 import asyncio
 import webbrowser
 import calendar as _cal
+import urllib.parse
 from datetime import date as _date
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -141,6 +142,18 @@ def main(page: ft.Page):
     modal_sender  = ft.Text("", size=16, color=ft.Colors.BLUE_GREY_300)
     modal_time    = ft.Text("", size=16, color=ft.Colors.OUTLINE)
 
+    def _on_gmail_btn_click(e):
+        print(f"[GMAIL URL] {modal_gmail_btn.url}")
+
+    modal_gmail_btn = ft.IconButton(
+        icon=ft.Icons.OPEN_IN_NEW,
+        icon_color=ft.Colors.BLUE_400,
+        icon_size=22,
+        tooltip="在 Gmail 中開啟",
+        url="",
+        on_click=_on_gmail_btn_click,
+    )
+
     # raw content text node
     modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
 
@@ -152,6 +165,9 @@ def main(page: ft.Page):
 
     # category of the currently open email (used by the calendar add button)
     modal_category = [None]
+
+    # authenticated Gmail address — fetched once and cached for building web URLs
+    _gmail_user_email = [""]
 
     def close_modal(e=None):
         modal_overlay.visible = False
@@ -266,16 +282,16 @@ def main(page: ft.Page):
                     ft.Icon(icon, size=15, color=ft.Colors.BLUE_GREY_300),
                     ft.Text(label, size=15, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
                 ], spacing=6),
-                padding=ft.Padding.only(top=4, bottom=4),
+                padding=ft.Padding.only(top=16, bottom=6),
             )
 
-        # 摘要 
+        # 摘要
         if result.get("summary"):
             modal_ai_scroll.controls += [
                 section_header(ft.Icons.SUMMARIZE, "摘要"),
                 ft.Container(
                     content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
-                    padding=ft.Padding.only(left=4),
+                    padding=ft.Padding.only(left=8, bottom=4),
                 ),
             ]
 
@@ -285,7 +301,7 @@ def main(page: ft.Page):
                 section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "待辦事項"),
                 ft.Container(
                     content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
-                    padding=ft.Padding.only(left=4),
+                    padding=ft.Padding.only(left=8, bottom=4),
                 ),
             ]
 
@@ -341,7 +357,7 @@ def main(page: ft.Page):
                             ),
                             cal_btn,
                         ], spacing=6),
-                        padding=ft.Padding.only(left=4, bottom=2),
+                        padding=ft.Padding.only(left=8, bottom=6),
                     )
                 )
 
@@ -362,7 +378,7 @@ def main(page: ft.Page):
                                     size=13, color=ft.Colors.BLUE_300,
                                 ),
                             ], spacing=6),
-                            padding=ft.Padding.only(left=4, bottom=2),
+                            padding=ft.Padding.only(left=8, bottom=6),
                         ),
                     )
                 )
@@ -377,7 +393,7 @@ def main(page: ft.Page):
                             ft.Text("•", size=13, color=ft.Colors.BLUE_GREY_300),
                             ft.Text(point, size=13, color="#dddddd", selectable=True, expand=True),
                         ], spacing=8),
-                        padding=ft.Padding.only(left=4, bottom=2),
+                        padding=ft.Padding.only(left=8, bottom=6),
                     )
                 )
 
@@ -445,9 +461,35 @@ def main(page: ft.Page):
 
             # fresh service so it doesn't race with background fetch
             modal_service = await asyncio.to_thread(get_gmail_service)
+            # fetch user email once and cache it — used to build the correct Gmail web URL
+            if not _gmail_user_email[0]:
+                profile = await asyncio.to_thread(
+                    modal_service.users().getProfile(userId="me").execute
+                )
+                _gmail_user_email[0] = profile.get("emailAddress", "")
+
             msg_full = await asyncio.to_thread(
                 modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
             )
+
+            # build Gmail web URL using authenticated email (bypasses u/N index problem)
+            # and RFC 2822 Message-ID header (guaranteed to point to the exact email)
+            headers = msg_full.get("payload", {}).get("headers", [])
+            rfc822_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
+            if _gmail_user_email[0] and rfc822_id:
+                encoded_id = urllib.parse.quote(rfc822_id, safe="")
+                # AccountChooser selects the right Google account then redirects
+                # to the Gmail search URL — avoids the u/N index problem entirely
+                gmail_search = (
+                    f"https://mail.google.com/mail/"
+                    f"#search/rfc822msgid:{encoded_id}"
+                )
+                modal_gmail_btn.url = (
+                    f"https://accounts.google.com/AccountChooser"
+                    f"?Email={_gmail_user_email[0]}"
+                    f"&continue={urllib.parse.quote(gmail_search, safe='')}"
+                )
+
             body = get_email_body(msg_full.get("payload", {}))
             modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
         except Exception as ex:
@@ -505,9 +547,11 @@ def main(page: ft.Page):
                                     modal_raw_view,
                                     # AI analysis view — hidden until user switches tab
                                     modal_ai_view,
-                                    # bottom bar: tab switcher pinned at bottom-right
+                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                    # bottom bar: Gmail link (left) + tab switcher (right)
                                     ft.Row(
                                         controls=[
+                                            modal_gmail_btn,
                                             ft.Container(expand=True),
                                             ft.Container(
                                                 content=ft.Row(
@@ -519,6 +563,7 @@ def main(page: ft.Page):
                                                 padding=ft.Padding.all(3),
                                             ),
                                         ],
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
                                 ],
                             ),
