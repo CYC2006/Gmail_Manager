@@ -4,6 +4,7 @@
 credentials.json
 token.json
 data/config.json
+data/user_preferences.json
 
 # =========================
 # Python virtual environment and cache

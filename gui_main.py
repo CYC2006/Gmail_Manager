@@ -17,6 +17,7 @@ from src.ai_agent import analyze_email_detail
 from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key, delete_events_by_email_id
 from src.calendar_view import build_calendar_months
 from src.settings.api_keys import build_api_keys_tab
+from src.settings.preference import build_preference_tab
 
 def main(page: ft.Page):
 
@@ -945,7 +946,8 @@ def main(page: ft.Page):
             traceback.print_exc()
             print(f"[ERROR] Fetch failed: {ex}")
 
-    _api_tab = build_api_keys_tab(page)
+    _api_tab  = build_api_keys_tab(page)
+    _pref_tab = build_preference_tab(page)
     page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
@@ -1113,7 +1115,8 @@ def main(page: ft.Page):
         )
 
     _tab_content_map = {
-        "api_keys": lambda: _api_tab.content,
+        "preference": lambda: _pref_tab.content,
+        "api_keys":   lambda: _api_tab.content,
     }
     def _settings_tab_btn(label, key, icon):
         def on_click(e):
