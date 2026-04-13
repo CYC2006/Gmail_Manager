@@ -807,20 +807,22 @@ def main(page: ft.Page):
             "inbox":    (ft.Icons.INBOX,          "Inbox"),
             "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
             "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
+            "settings": (ft.Icons.SETTINGS,       "Settings"),
         }
         icon_name, title_text = _icon_map.get(view, (ft.Icons.INBOX, view.capitalize()))
         header_icon_wrapper.content = ft.Icon(icon_name, size=28, color=ft.Colors.WHITE)
         header_title.value = title_text
 
-        # toggle between email panel and calendar panel
-        is_calendar = (view == "calendar")
-        inbox_panel.visible    = not is_calendar
-        calendar_panel.visible = is_calendar
+        # show only the relevant panel
+        inbox_panel.visible       = view in ("inbox", "moodle")
+        calendar_panel.visible    = view == "calendar"
+        preferences_panel.visible = False
+        settings_panel.visible    = view == "settings"
 
-        if not is_calendar:
+        if view in ("inbox", "moodle"):
             render_current_view()
             update_stats_display()
-        else:
+        elif view == "calendar":
             _refresh_calendar()
 
     # ====================
@@ -965,12 +967,17 @@ def main(page: ft.Page):
     tile_sent  = ft.ListTile(leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"))
     tile_all   = ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"))
     tile_trash = ft.ListTile(leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"))
+    tile_settings = ft.ListTile(
+        leading=ft.Icon(ft.Icons.SETTINGS), title=ft.Text("Settings"),
+        on_click=lambda e: switch_view("settings"),
+    )
 
     # only tiles with an active view need to be in this list for selection highlighting
     sidebar_tiles = [
         (tile_inbox,    "inbox"),
         (tile_moodle,   "moodle"),
         (tile_calendar, "calendar"),
+        (tile_settings, "settings"),
     ]
 
     sidebar = ft.Container(
@@ -986,6 +993,7 @@ def main(page: ft.Page):
             tile_sent,
             tile_all,
             tile_trash,
+            tile_settings,
         ])
     )
 
@@ -1060,6 +1068,84 @@ def main(page: ft.Page):
     )
 
     # ====================
+    # Settings Panel
+    # ====================
+    settings_tab_state = ["appearance"]  # active tab
+
+    def _settings_placeholder(label):
+        return ft.Container(
+            content=ft.Text(f"{label} coming soon…", size=16, color=ft.Colors.GREY_400),
+            expand=True,
+            alignment=ft.Alignment(0, 0),
+        )
+
+    settings_content = ft.Container(expand=True, content=_settings_placeholder("Appearance"))
+
+    _TAB_DEFS = [
+        ("appearance",    "Appearance",   ft.Icons.PALETTE),
+        ("preference",    "Preference",   ft.Icons.TUNE),
+        ("account",       "Account",      ft.Icons.MANAGE_ACCOUNTS),
+        ("notifications", "Notifications",ft.Icons.NOTIFICATIONS),
+        ("api_keys",      "API keys",     ft.Icons.KEY),
+    ]
+
+    def _stab_style(active: bool):
+        return ft.ButtonStyle(
+            color=ft.Colors.WHITE if active else ft.Colors.GREY_500,
+            bgcolor={"": "#3a3a3a" if active else "transparent"},
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            shape=ft.RoundedRectangleBorder(radius=6),
+        )
+
+    def _settings_tab_btn(label, key, icon):
+        def on_click(e):
+            settings_tab_state[0] = key
+            settings_content.content = _settings_placeholder(label)
+            for k, btn in _stab_btns.items():
+                btn.style = _stab_style(k == key)
+            page.update()
+        return ft.TextButton(
+            on_click=on_click,
+            style=_stab_style(key == settings_tab_state[0]),
+            expand=True,
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=16),
+                    ft.Text(label, size=13),
+                ],
+                spacing=6,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+        )
+
+    _stab_btns = {
+        key: _settings_tab_btn(label, key, icon)
+        for key, label, icon in _TAB_DEFS
+    }
+
+    settings_tab_bar = ft.Column(
+        [
+            ft.Container(
+                content=ft.Row(list(_stab_btns.values()), spacing=4, expand=True),
+                padding=ft.Padding.only(top=12, bottom=8),
+            ),
+            ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+            ft.Container(height=8),
+        ],
+        spacing=0,
+    )
+
+    settings_panel = ft.Column(
+        expand=True,
+        visible=False,
+        spacing=0,
+        controls=[settings_tab_bar, settings_content],
+    )
+
+    # preferences_panel kept for backward-compat with switch_view wiring
+    preferences_panel = ft.Column(expand=True, visible=False, spacing=0, controls=[])
+
+    # ====================
     # Main Content Area
     # ====================
 
@@ -1104,6 +1190,8 @@ def main(page: ft.Page):
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 inbox_panel,
                 calendar_panel,
+                preferences_panel,
+                settings_panel,
             ]
         )
     )
