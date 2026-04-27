@@ -29,6 +29,11 @@ def init_db():
             conn.execute('ALTER TABLE analyzed_emails ADD COLUMN detail_analysis TEXT')
         except Exception:
             pass  # column already exists
+        # add matched_prefs column to existing databases that predate this schema
+        try:
+            conn.execute('ALTER TABLE analyzed_emails ADD COLUMN matched_prefs TEXT')
+        except Exception:
+            pass  # column already exists
 
     # purge entries not seen in any fetch for over 30 days
     cleanup_old_entries(days=30)
@@ -44,6 +49,15 @@ def get_cached_result(email_id):
     if row:
         # refresh last_seen — this email is still present in inbox
         _touch_last_seen(email_id)
+        # matched_prefs is column 9; None means it was never computed (old cache entry)
+        matched_raw = row[9] if len(row) > 9 else None
+        if matched_raw is not None:
+            try:
+                matched = json.loads(matched_raw)
+            except Exception:
+                matched = []
+        else:
+            matched = None  # never been matched — old cache entry
         return {
             "email_id":       row[0],
             "sender":         row[1],
@@ -52,6 +66,7 @@ def get_cached_result(email_id):
             "summary":        row[4],
             "event_time":     row[5],
             "action_required":row[6],
+            "matched_prefs":  matched,
         }
     return None
 
@@ -120,6 +135,15 @@ def update_summary(email_id, summary):
         conn.execute(
             'UPDATE analyzed_emails SET summary = ? WHERE email_id = ?',
             (summary, email_id)
+        )
+
+
+# save matched preference labels for an email (called after AI categorization)
+def save_matched_prefs(email_id: str, matched: list):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            'UPDATE analyzed_emails SET matched_prefs = ? WHERE email_id = ?',
+            (json.dumps(matched, ensure_ascii=False), email_id)
         )
 
 

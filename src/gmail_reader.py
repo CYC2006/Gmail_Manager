@@ -8,7 +8,8 @@ from googleapiclient.discovery import build
 from src.email_parser import get_email_body
 from src.ai_agent import categorize_email, extract_moodle_events
 import src.ai_agent as _ai_agent
-from src.db_manager import init_db, get_cached_result, save_analysis
+from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs
+from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
@@ -142,10 +143,16 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             cached = get_cached_result(email_id)
             if cached:
                 print(f"[CACHE] Loaded: {subject[:30]}...")
+                matched_prefs = cached.get("matched_prefs")
+                if matched_prefs is None:
+                    # old cache entry — run a quick subject-only match and persist
+                    matched_prefs = match_preferences(subject, "", cached.get("category", ""))
+                    save_matched_prefs(email_id, matched_prefs)
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
-                    "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
+                    "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                    "matched_prefs": matched_prefs,
                 }
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle))
@@ -163,7 +170,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": "其他郵件", "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
+                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                "matched_prefs": [],
             }
             continue
 
@@ -171,7 +179,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             msg_full   = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             email_body = get_email_body(msg_full.get("payload", {}))
 
-            category = "其他郵件"
+            category      = "其他郵件"
+            matched_prefs = []
             if len(email_body) > 20:
                 print(f"[AI] Categorizing: {subject[:30]}...")
                 result = categorize_email(email_body, is_moodle=is_moodle)
@@ -182,6 +191,9 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                         "category": category, "summary": subject,
                         "event_time": None, "action_required": None,
                     })
+                    # match against full body (most accurate) and persist
+                    matched_prefs = match_preferences(subject, email_body, category)
+                    save_matched_prefs(email_id, matched_prefs)
 
                     # auto-extract event times only for categories with a meaningful date
                     # 作業公布/作業解答/成績公布/繳交確認/考試相關 are informational — no calendar event needed
@@ -206,7 +218,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": category, "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset
+                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                "matched_prefs": matched_prefs,
             }
         except Exception as error:
             print(f"[ERROR] Pass 2 failed for {email_id}: {error}")

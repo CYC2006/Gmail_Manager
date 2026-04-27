@@ -725,11 +725,16 @@ def main(page: ft.Page):
                 max_lines=1,
             )
 
+        # highlight emails whose content matches a saved preference keyword
+        _matched = data.get('matched_prefs') or []
+        _pref_border = ft.Border.all(2, ft.Colors.AMBER_400) if _matched else None
+
         # stored as a named variable so on_double_tap can update its bgcolor
         card_inner = ft.Container(
             bgcolor=card_bgcolor,
             padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
             border_radius=10,
+            border=_pref_border,
             content=ft.Column(
                 spacing=8,
                 controls=[
