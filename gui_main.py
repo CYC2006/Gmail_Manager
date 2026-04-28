@@ -962,14 +962,24 @@ def main(page: ft.Page):
                     print(f"[ERROR] Failed to fetch user profile: {e}")
                     user_email_text.value = "Offline Mode"
 
+            # guard: another refresh may have fired while we were initializing the service
+            if fetch_gen[0] != this_gen:
+                return
+
             # update the stats badges (inbox total / unread / starred)
             stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
+
+            # guard: user may have clicked refresh while stats were loading
+            if fetch_gen[0] != this_gen:
+                return
+
             live_stats["inbox"]   = stats["inbox"]
             live_stats["unread"]  = stats["unread"]
             live_stats["starred"] = stats["starred"]
             update_stats_display()
 
-            # clear previous results before loading the fresh batch
+            # state was already cleared by on_refresh_click; clear again as a safety
+            # net for the initial startup call where on_refresh_click runs synchronously
             all_emails.clear()
             shown_email_ids.clear()
             email_list_view.controls.clear()
@@ -978,9 +988,15 @@ def main(page: ft.Page):
             # stream page 1 — each yielded email is inserted and rendered immediately
             gen = fetch_and_analyze_emails(svc["service"])
             while True:
+                # guard: abort immediately if the user clicked refresh again
+                if fetch_gen[0] != this_gen:
+                    return
                 email_data = await asyncio.to_thread(get_next, gen)
                 if email_data is None:
                     break
+                # re-check after the blocking call — refresh may have fired during get_next
+                if fetch_gen[0] != this_gen:
+                    return
                 # page 1 done — hand off remaining pages to a background task
                 if "_next_page_token" in email_data:
                     page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
@@ -1000,8 +1016,12 @@ def main(page: ft.Page):
     page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
-        # increment gen id to cancel any in-progress background fetch tasks
+        # increment gen id — background tasks compare against this and self-cancel
         fetch_gen[0] += 1
+        # clear all state immediately so the UI is blank the instant the button is clicked,
+        # not after fetch_task has had a chance to do it asynchronously
+        all_emails.clear()
+        shown_email_ids.clear()
         email_list_view.controls.clear()
         page.update()
         page.run_task(fetch_task)

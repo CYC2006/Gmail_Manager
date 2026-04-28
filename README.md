@@ -16,21 +16,6 @@ A desktop application that helps NCKU students manage their school Gmail inbox �
 
 ---
 
-## Screenshots
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  NCKU Gmail Manager                                         │
-│  [收件匣] [Moodle] [行事曆] [設定]          [同步]           │
-│  ─────────────────────────────────────────────────────────  │
-│  ● 作業死線  程式設計作業 — 截止時間 5/10   ★ ✓ 📁 🗑        │
-│  ● 一般宣導  [符合偏好] 資工系講座通知       ★ ✓ 📁 🗑        │
-│  ● 停課通知  微積分停課通知                  ★ ✓ 📁 🗑        │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
 ## File Structure
 
 ```
@@ -43,7 +28,7 @@ Gmail_Manager/
 ├── token.json                    # Cached Gmail OAuth2 token (not in VCS)
 │
 ├── src/
-│   ├── ai_agent.py               # Groq LLM calls: categorize, extract events, detail analysis
+│   ├── ai_agent.py               # Groq calls: categorize, extract events, detail analysis
 │   ├── gmail_reader.py           # Gmail API: authenticate, fetch, batch-analyze emails
 │   ├── email_parser.py           # Email body extraction and HTML-to-text conversion
 │   ├── email_actions.py          # Gmail API actions: read, star, archive, trash
