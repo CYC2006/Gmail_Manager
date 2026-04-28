@@ -2,6 +2,7 @@ import flet as ft
 import os
 import sys
 import ssl
+import bisect
 import asyncio
 import webbrowser
 import calendar as _cal
@@ -895,11 +896,9 @@ def main(page: ft.Page):
     def _insert_email_sorted(email_data):
         # keep all_emails ordered by _index (original inbox position)
         new_idx = email_data.get('_index', float('inf'))
-        for i, e in enumerate(all_emails):
-            if e.get('_index', float('inf')) > new_idx:
-                all_emails.insert(i, email_data)
-                return
-        all_emails.append(email_data)
+        keys = [e.get('_index', float('inf')) for e in all_emails]
+        pos = bisect.bisect_left(keys, new_idx)
+        all_emails.insert(pos, email_data)
 
     def append_email_to_view(email_data):
         # skip if the visible page is already full — email stays buffered in all_emails

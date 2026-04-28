@@ -94,6 +94,7 @@ MOODLE_EVENT_EXTRACT  = _load_prompt("moodle_event_extract.txt")
 LAST_API_CALL_TIME = 0.0
 MIN_INTERVAL = 2.5  # seconds
 TPD_EXHAUSTED = False  # set True when daily token limit is hit; stops all further AI calls
+
 def _print_tpd_429(msg) -> bool:
     """
     If this is a per-day token 429:
@@ -123,112 +124,14 @@ def _print_tpd_429(msg) -> bool:
     return not switched  # True = all exhausted (break), False = switched (retry)
 
 
-def categorize_email(email_body, is_moodle=False):
-    """Call the AI to categorize one email. Returns the category string, or None on failure."""
+def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
+    """Execute one Groq API call with rate limiting and key-switching on 429.
+    Returns the raw response text, or None on any failure or when TPD exhausted."""
     global LAST_API_CALL_TIME
 
-    system_prompt = MOODLE_CATEGORIZE if is_moodle else EMAIL_CATEGORIZE
-    user_content  = f"Email body:\n{email_body[:3000]}"
-
-    elapsed = time.time() - LAST_API_CALL_TIME
-    if elapsed < MIN_INTERVAL:
-        time.sleep(MIN_INTERVAL - elapsed)
-
-    # Try once per available key — no retries, no backoff.
-    # On 429: switch key and try once more; any other error: stop immediately.
-    for _ in range(len(_AVAILABLE_KEYS)):
-        try:
-            response = _get_client().chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_content},
-                ],
-                temperature=0.1,
-                max_tokens=20,
-            )
-
-            LAST_API_CALL_TIME = time.time()
-
-            raw = response.choices[0].message.content.strip()
-            if raw.startswith("```"):
-                raw = raw.strip("`").removeprefix("json").strip()
-
-            result = json.loads(raw)
-            return result.get("category")
-
-        except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "rate_limit" in error_msg.lower():
-                if _print_tpd_429(error_msg):
-                    break  # all keys exhausted — stop entirely
-                # key switched → loop continues with next key immediately
-            else:
-                print(f"[DEBUG] Categorization failed: {e}")
-                break
-
-    return None
-
-
-def extract_moodle_events(email_body):
-    """Extract event times from a Moodle email body.
-    Returns a list of {"label": str, "time": str} dicts, or [] on failure."""
-    global LAST_API_CALL_TIME
-
-    if TPD_EXHAUSTED:
-        return []
-
-    user_content = f"Email body:\n{email_body[:3000]}"
-
-    elapsed = time.time() - LAST_API_CALL_TIME
-    if elapsed < MIN_INTERVAL:
-        time.sleep(MIN_INTERVAL - elapsed)
-
-    for _ in range(len(_AVAILABLE_KEYS)):
-        try:
-            response = _get_client().chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": MOODLE_EVENT_EXTRACT},
-                    {"role": "user",   "content": user_content},
-                ],
-                temperature=0.1,
-                max_tokens=300,
-            )
-
-            LAST_API_CALL_TIME = time.time()
-
-            raw = response.choices[0].message.content.strip()
-            match = _re.search(r'\{.*\}', raw, _re.DOTALL)
-            if not match:
-                print("[DEBUG] Moodle event extract: no JSON found in response")
-                break
-            result = json.loads(match.group())
-            return result.get("event_times", [])
-
-        except Exception as e:
-            error_msg = str(e)
-            if "429" in error_msg or "rate_limit" in error_msg.lower():
-                if _print_tpd_429(error_msg):
-                    break
-            else:
-                print(f"[DEBUG] Moodle event extract failed: {e}")
-                break
-
-    return []
-
-
-def analyze_email_detail(email_body):
-    """Run a full structured analysis of one email.
-    Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
-    global LAST_API_CALL_TIME
-
-    # skip if all keys are already exhausted by the background categorization
     if TPD_EXHAUSTED:
         return None
 
-    user_content = f"Email body:\n{email_body[:4000]}"
-
     elapsed = time.time() - LAST_API_CALL_TIME
     if elapsed < MIN_INTERVAL:
         time.sleep(MIN_INTERVAL - elapsed)
@@ -237,42 +140,92 @@ def analyze_email_detail(email_body):
         try:
             response = _get_client().chat.completions.create(
                 model=MODEL,
-                messages=[
-                    {"role": "system", "content": EMAIL_DETAIL_ANALYZE},
-                    {"role": "user",   "content": user_content},
-                ],
+                messages=messages,
                 temperature=0.1,
-                max_tokens=1500,  # raised from 1000 — give model more room to close JSON cleanly
+                max_tokens=max_tokens,
             )
-
             LAST_API_CALL_TIME = time.time()
-
-            raw = response.choices[0].message.content.strip()
-
-            # extract the JSON object robustly — handles markdown fences and any leading/trailing prose
-            match = _re.search(r'\{.*\}', raw, _re.DOTALL)
-            if not match:
-                print(f"[DEBUG] Detail analysis: no JSON object found in response")
-                print(f"[DEBUG] Raw response was: {raw[:300]}")
-                break
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError as json_err:
-                print(f"[DEBUG] Detail analysis: malformed JSON — {json_err}")
-                print(f"[DEBUG] Offending JSON (first 400 chars): {match.group()[:400]}")
-                break
+            return response.choices[0].message.content.strip()
 
         except Exception as e:
             error_msg = str(e)
             if "429" in error_msg or "rate_limit" in error_msg.lower():
                 if _print_tpd_429(error_msg):
                     break  # all keys exhausted
+                # key switched → loop continues with next key
             else:
-                print(f"[DEBUG] Detail analysis failed: {e}")
+                print(f"[DEBUG] Groq API call failed: {e}")
                 break
 
     return None
 
+
+def categorize_email(email_body, is_moodle=False):
+    """Call the AI to categorize one email. Returns the category string, or None on failure."""
+    system_prompt = MOODLE_CATEGORIZE if is_moodle else EMAIL_CATEGORIZE
+    raw = _call_groq(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": f"Email body:\n{email_body[:3000]}"},
+        ],
+        max_tokens=20,
+    )
+    if raw is None:
+        return None
+    if raw.startswith("```"):
+        raw = raw.strip("`").removeprefix("json").strip()
+    try:
+        return json.loads(raw).get("category")
+    except Exception as e:
+        print(f"[DEBUG] Categorization JSON parse failed: {e}")
+        return None
+
+
+def extract_moodle_events(email_body):
+    """Extract event times from a Moodle email body.
+    Returns a list of {"label": str, "time": str} dicts, or [] on failure."""
+    raw = _call_groq(
+        messages=[
+            {"role": "system", "content": MOODLE_EVENT_EXTRACT},
+            {"role": "user",   "content": f"Email body:\n{email_body[:3000]}"},
+        ],
+        max_tokens=300,
+    )
+    if raw is None:
+        return []
+    match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+    if not match:
+        print("[DEBUG] Moodle event extract: no JSON found in response")
+        return []
+    try:
+        return json.loads(match.group()).get("event_times", [])
+    except Exception as e:
+        print(f"[DEBUG] Moodle event extract JSON parse failed: {e}")
+        return []
+
+
+def analyze_email_detail(email_body):
+    """Run a full structured analysis of one email.
+    Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
+    raw = _call_groq(
+        messages=[
+            {"role": "system", "content": EMAIL_DETAIL_ANALYZE},
+            {"role": "user",   "content": f"Email body:\n{email_body[:4000]}"},
+        ],
+        max_tokens=1500,  # raised from 1000 — give model more room to close JSON cleanly
+    )
+    if raw is None:
+        return None
+    match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+    if not match:
+        print(f"[DEBUG] Detail analysis: no JSON object found in response")
+        return None
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] Detail analysis: malformed JSON — {e}")
+        print(f"[DEBUG] Offending JSON (first 400 chars): {match.group()[:400]}")
+        return None
 
 
 def verify_api_key(key: str) -> str:
