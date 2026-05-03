@@ -167,12 +167,16 @@ def main(page: ft.Page):
     # category of the currently open email (used by the calendar add button)
     modal_category = [None]
 
+    # data dict of the currently open email (shared with the card so action buttons can mutate it)
+    modal_data = [None]
+
     # authenticated Gmail address — fetched once and cached for building web URLs
     _gmail_user_email = [""]
 
     def close_modal(e=None):
         modal_overlay.visible = False
         modal_gen[0] += 1  # cancel any pending AI analysis task
+        modal_data[0] = None
         page.update()
 
     # ── tab button styling helpers ──
@@ -445,6 +449,11 @@ def main(page: ft.Page):
         modal_time.value      = data['time']
         modal_body.value      = ""
         modal_category[0]     = data.get('category')
+        modal_data[0]         = data
+        # sync star button to the email's current star state
+        _starred = data.get('is_starred', False)
+        modal_star_btn.icon       = ft.Icons.STAR if _starred else ft.Icons.STAR_BORDER
+        modal_star_btn.icon_color = ft.Colors.YELLOW_400 if _starred else ft.Colors.YELLOW_600
         modal_overlay.visible = True
         page.update()
 
@@ -501,6 +510,100 @@ def main(page: ft.Page):
         if body and body.strip():
             page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
 
+    # ── modal action buttons (star / archive / trash) ──
+    modal_star_btn = ft.IconButton(
+        icon=ft.Icons.STAR_BORDER,
+        icon_size=20,
+        icon_color=ft.Colors.YELLOW_600,
+        tooltip="加星號",
+        padding=ft.Padding.all(2),
+    )
+    modal_archive_btn = ft.IconButton(
+        icon=ft.Icons.ARCHIVE,
+        icon_size=20,
+        icon_color=ft.Colors.GREEN_400,
+        tooltip="封存",
+        padding=ft.Padding.all(2),
+    )
+    modal_trash_btn = ft.IconButton(
+        icon=ft.Icons.DELETE,
+        icon_size=20,
+        icon_color=ft.Colors.RED_400,
+        tooltip="刪除",
+        padding=ft.Padding.all(2),
+    )
+
+    async def _modal_on_star(e):
+        data = modal_data[0]
+        if data is None:
+            return
+        new_val = not data.get('is_starred', False)
+        data['is_starred'] = new_val
+        # update modal button
+        modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+        modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+        # sync the card star button visible behind the transparent modal
+        card_star = data.get('_star_btn_ref')
+        if card_star:
+            card_star.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+            card_star.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+        if new_val:
+            live_stats["starred"] += 1
+        else:
+            live_stats["starred"] = max(0, live_stats["starred"] - 1)
+        update_stats_display()
+        await _call_with_ssl_retry(toggle_star, data['id'], new_val)
+
+    async def _modal_on_archive(e):
+        data = modal_data[0]
+        if data is None:
+            return
+        email_id = data['id']
+        close_modal()                    # step 1: modal disappears, user sees inbox
+        await asyncio.sleep(0)           # yield so the close renders before card removal
+        async with ui_lock:
+            card = data.get('_card_ref')
+            if card and card in email_list_view.controls:
+                email_list_view.controls.remove(card)
+            shown_email_ids.pop(email_id, None)
+            all_emails[:] = [item for item in all_emails if item['id'] != email_id]
+            fill_next_email()
+        live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+        if data.get('is_unread'):
+            live_stats["unread"] = max(0, live_stats["unread"] - 1)
+        if data.get('is_starred'):
+            live_stats["starred"] = max(0, live_stats["starred"] - 1)
+        update_stats_display()
+        await _call_with_ssl_retry(archive_email, email_id)
+
+    async def _modal_on_trash(e):
+        data = modal_data[0]
+        if data is None:
+            return
+        email_id = data['id']
+        close_modal()                    # step 1: modal disappears, user sees inbox
+        await asyncio.sleep(0)           # yield so the close renders before card removal
+        async with ui_lock:
+            card = data.get('_card_ref')
+            if card and card in email_list_view.controls:
+                email_list_view.controls.remove(card)
+            shown_email_ids.pop(email_id, None)
+            all_emails[:] = [item for item in all_emails if item['id'] != email_id]
+            fill_next_email()
+        live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+        if data.get('is_unread'):
+            live_stats["unread"] = max(0, live_stats["unread"] - 1)
+        if data.get('is_starred'):
+            live_stats["starred"] = max(0, live_stats["starred"] - 1)
+        update_stats_display()
+        await asyncio.to_thread(delete_analysis, email_id)
+        await asyncio.to_thread(delete_events_by_email_id, email_id)
+        await _call_with_ssl_retry(trash_email, email_id)
+
+    modal_star_btn.on_click    = lambda e: page.run_task(_modal_on_star,    e)
+    modal_archive_btn.on_click = lambda e: page.run_task(_modal_on_archive, e)
+    modal_trash_btn.on_click   = lambda e: page.run_task(_modal_on_trash,   e)
+
     # Stack layers (bottom → top):
     #   1. semi-transparent black backdrop (visual only)
     #   2. full-screen GestureDetector that closes modal on tap outside the box
@@ -535,8 +638,19 @@ def main(page: ft.Page):
                                 spacing=10,
                                 expand=True,
                                 controls=[
-                                    # row 1: subject title (close by clicking backdrop)
-                                    modal_subject,
+                                    # row 1: subject title (left) + action buttons (right)
+                                    ft.Row(
+                                        controls=[
+                                            ft.Container(content=modal_subject, expand=True),
+                                            ft.Row(
+                                                controls=[modal_star_btn, modal_archive_btn, modal_trash_btn],
+                                                spacing=0,
+                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            ),
+                                        ],
+                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
                                     # row 2: sender name (left) + received time (right)
                                     ft.Row(
                                         controls=[modal_sender, modal_time],
@@ -578,6 +692,17 @@ def main(page: ft.Page):
     # ====================
     # Email Card Helpers
     # ====================
+
+    async def _call_with_ssl_retry(fn, *args):
+        """Call a Gmail API function; on SSL error rebuild the service and retry once."""
+        try:
+            await asyncio.to_thread(fn, svc["service"], *args)
+        except (ssl.SSLError, OSError) as ex:
+            if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
+                raise
+            print(f"[SSL] Connection stale, rebuilding service and retrying... ({ex})")
+            svc["service"] = await asyncio.to_thread(get_gmail_service)
+            await asyncio.to_thread(fn, svc["service"], *args)
 
     # returns True if the email was sent from Moodle
     def is_moodle(data) -> bool:
@@ -623,18 +748,6 @@ def main(page: ft.Page):
         # Card Action Handlers
         # --------------------
 
-        async def _call_with_ssl_retry(fn, *args):
-            # 1. try calling the Gmail API function normally
-            try:
-                await asyncio.to_thread(fn, svc["service"], *args)
-            except (ssl.SSLError, OSError) as ex:
-                if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
-                    raise
-                # 2. SSL connection went stale — rebuild the service and retry once
-                print(f"[SSL] Connection stale, rebuilding service and retrying... ({ex})")
-                svc["service"] = await asyncio.to_thread(get_gmail_service)
-                await asyncio.to_thread(fn, svc["service"], *args)
-
         async def on_mark_read(e):
             # update card background color immediately before the API call
             if data.get('is_unread'):
@@ -645,17 +758,22 @@ def main(page: ft.Page):
             await _call_with_ssl_retry(mark_as_read, email_id)
 
         async def on_star(e, card_ref):
-            # toggle star state locally first for instant feedback
-            is_starred_state[0] = not is_starred_state[0]
-            e.control.icon = ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER
-            e.control.icon_color = ft.Colors.YELLOW_400 if is_starred_state[0] else ft.Colors.YELLOW_600
-            data['is_starred'] = is_starred_state[0]
-            if is_starred_state[0]:
+            # derive new value from data (authoritative) so modal sync cannot desync this
+            new_val = not data.get('is_starred', False)
+            is_starred_state[0] = new_val
+            data['is_starred'] = new_val
+            e.control.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+            e.control.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+            if new_val:
                 live_stats["starred"] += 1
             else:
                 live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            # sync modal star button if this card's modal is currently open
+            if modal_overlay.visible and modal_data[0] is not None and modal_data[0]['id'] == email_id:
+                modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+                modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
             update_stats_display()
-            await _call_with_ssl_retry(toggle_star, email_id, is_starred_state[0])
+            await _call_with_ssl_retry(toggle_star, email_id, new_val)
 
         async def on_archive(e, card_ref):
             async with ui_lock:
@@ -730,6 +848,17 @@ def main(page: ft.Page):
         _matched = data.get('matched_prefs') or []
         _pref_border = ft.Border.all(2, ft.Colors.AMBER_400) if _matched else None
 
+        # extracted so the modal can sync its icon via data['_star_btn_ref']
+        _card_star_btn = ft.IconButton(
+            icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
+            icon_size=18,
+            padding=ft.Padding.all(2),
+            icon_color=ft.Colors.YELLOW_600,
+            tooltip="加星號",
+            on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
+        )
+        data['_star_btn_ref'] = _card_star_btn
+
         # stored as a named variable so on_double_tap can update its bgcolor
         card_inner = ft.Container(
             bgcolor=card_bgcolor,
@@ -753,14 +882,7 @@ def main(page: ft.Page):
                                         tooltip="標記已讀",
                                         on_click=lambda e: page.run_task(on_mark_read, e),
                                     ),
-                                    ft.IconButton(
-                                        icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
-                                        icon_size=18,
-                                        padding=ft.Padding.all(2),
-                                        icon_color=ft.Colors.YELLOW_600,
-                                        tooltip="加星號",
-                                        on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
-                                    ),
+                                    _card_star_btn,
                                     ft.IconButton(
                                         icon=ft.Icons.ARCHIVE,
                                         icon_size=18,
@@ -813,6 +935,8 @@ def main(page: ft.Page):
         # fill the forward reference with the outermost widget —
         # email_list_view holds GestureDetectors, not Cards
         card_ref[0] = gesture
+        # store in data so modal action buttons can remove the card without a lookup
+        data['_card_ref'] = gesture
         return gesture
 
     # ====================
