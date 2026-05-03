@@ -1125,8 +1125,9 @@ def main(page: ft.Page):
                 if "_next_page_token" in email_data:
                     page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
                     return
-                _insert_email_sorted(email_data)
-                append_email_to_view(email_data)
+                async with ui_lock:
+                    _insert_email_sorted(email_data)
+                    append_email_to_view(email_data)
                 page.update()
                 await asyncio.sleep(0)
 
