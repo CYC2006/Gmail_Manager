@@ -1105,7 +1105,7 @@ def main(page: ft.Page):
                             [
                                 ft.ProgressRing(width=32, height=32, stroke_width=3),
                                 ft.Text(
-                                    "正在驗證 Google 帳號…\nConnecting to Google — a browser window may open.",
+                                    "Connecting to Google — a browser window may open.",
                                     color=ft.Colors.BLUE_GREY_400,
                                     text_align=ft.TextAlign.CENTER,
                                     size=13,
@@ -1129,7 +1129,7 @@ def main(page: ft.Page):
                     email_list_view.controls.append(
                         ft.Container(
                             content=ft.Text(
-                                "無法連線至 Gmail。\nFailed to connect to Gmail.",
+                                "Failed to connect to Gmail.",
                                 color=ft.Colors.RED_400,
                                 text_align=ft.TextAlign.CENTER,
                                 size=13,
