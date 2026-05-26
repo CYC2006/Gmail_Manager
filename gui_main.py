@@ -11,7 +11,7 @@ from datetime import date as _date
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.gmail_reader import get_gmail_service, fetch_and_analyze_emails, get_inbox_stats
+from src.gmail_reader import get_gmail_service, build_action_service, fetch_and_analyze_emails, get_inbox_stats
 from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
@@ -696,25 +696,30 @@ def main(page: ft.Page):
     # ====================
 
     async def _call_with_ssl_retry(fn, *args):
-        """Call a Gmail API function.
-        - On SSL/connection error: rebuild service and retry once.
-        - On auth error (token revoked mid-session): re-authenticate via browser and retry.
+        """Call a Gmail API function using a FRESH service instance.
+
+        Each action (delete, archive, star, mark-read) calls build_action_service()
+        to obtain its own httplib2.Http connection pool.  This prevents the
+        background email-fetch thread and action threads from sharing an SSL socket,
+        which caused libmalloc heap corruption (EXC_BREAKPOINT / SIGTRAP) on macOS.
         """
         try:
-            await asyncio.to_thread(fn, svc["service"], *args)
+            action_svc = await asyncio.to_thread(build_action_service)
+            await asyncio.to_thread(fn, action_svc, *args)
         except (ssl.SSLError, OSError) as ex:
             if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
                 raise
-            print(f"[SSL] Connection stale, rebuilding service and retrying... ({ex})")
-            svc["service"] = await asyncio.to_thread(get_gmail_service)
-            await asyncio.to_thread(fn, svc["service"], *args)
+            print(f"[SSL] SSL error on action, retrying with new service... ({ex})")
+            action_svc = await asyncio.to_thread(get_gmail_service)
+            await asyncio.to_thread(fn, action_svc, *args)
         except Exception as ex:
             err = str(ex).lower()
-            if "invalid_grant" in err or "token" in err and "expired" in err:
-                # Token revoked mid-session — trigger silent re-auth (browser opens if needed)
+            if "invalid_grant" in err or ("token" in err and "expired" in err):
+                # Token revoked mid-session — re-auth and update main fetch service too
                 print(f"[AUTH] Token revoked mid-session, re-authenticating... ({ex})")
-                svc["service"] = await asyncio.to_thread(get_gmail_service)
-                await asyncio.to_thread(fn, svc["service"], *args)
+                action_svc = await asyncio.to_thread(get_gmail_service)
+                svc["service"] = action_svc   # refresh fetch service with new credentials
+                await asyncio.to_thread(fn, action_svc, *args)
             else:
                 raise
 

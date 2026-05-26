@@ -53,6 +53,30 @@ def get_gmail_service():
         return None
 
 
+def build_action_service():
+    """Build a FRESH, independent Gmail service from existing valid credentials.
+
+    Call this for every user-initiated action (delete, archive, star, mark-read)
+    so each action gets its own httplib2.Http connection pool and never shares an
+    SSL socket with the background email-fetch service.  httplib2.Http is NOT
+    thread-safe across concurrent operations, and sharing one instance between
+    the streaming fetch thread and an action thread causes TLS memory corruption
+    (libmalloc EXC_BREAKPOINT / SIGTRAP on macOS ARM64).
+
+    Cost: reads token.json (~1 KB) + checks expiry (no network) + builds from
+    the locally-cached discovery document — typically < 5 ms.
+    """
+    if os.path.exists("token.json"):
+        try:
+            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+            if creds and creds.valid:
+                return build("gmail", "v1", credentials=creds)
+        except Exception:
+            pass
+    # Fallback: full auth flow (handles expired / missing token)
+    return get_gmail_service()
+
+
 # get Number of mails of INBOX / UNREAD / STARRED
 def get_inbox_stats(service):
     try:
