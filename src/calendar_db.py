@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 
 _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
@@ -18,14 +19,25 @@ def init_calendar_db():
                 event_time TEXT NOT NULL,
                 source     TEXT NOT NULL DEFAULT 'manual',
                 category   TEXT,
-                added_at   TEXT NOT NULL
+                added_at   TEXT NOT NULL,
+                color      TEXT,
+                end_time   TEXT,
+                is_all_day INTEGER DEFAULT 0,
+                notes      TEXT
             )
         ''')
-        # migrate existing DBs that predate the category column
-        try:
-            conn.execute('ALTER TABLE calendar_events ADD COLUMN category TEXT')
-        except Exception:
-            pass  # column already exists
+        # migrate existing DBs that predate these columns
+        for col_sql in [
+            'ALTER TABLE calendar_events ADD COLUMN category  TEXT',
+            'ALTER TABLE calendar_events ADD COLUMN color     TEXT',
+            'ALTER TABLE calendar_events ADD COLUMN end_time  TEXT',
+            'ALTER TABLE calendar_events ADD COLUMN is_all_day INTEGER DEFAULT 0',
+            'ALTER TABLE calendar_events ADD COLUMN notes     TEXT',
+        ]:
+            try:
+                conn.execute(col_sql)
+            except Exception:
+                pass  # column already exists
 
 
 def event_exists(email_id: str, event_time: str) -> bool:
@@ -60,7 +72,8 @@ def get_all_events() -> list:
     with sqlite3.connect(CAL_DB) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT id, email_id, label, event_time, source, category, added_at '
+            'SELECT id, email_id, label, event_time, source, category, added_at, '
+            '       color, end_time, is_all_day, notes '
             'FROM calendar_events ORDER BY event_time'
         )
         rows = cursor.fetchall()
@@ -73,9 +86,34 @@ def get_all_events() -> list:
             "source":     r[4],
             "category":   r[5],
             "added_at":   r[6],
+            "color":      r[7],
+            "end_time":   r[8],
+            "is_all_day": bool(r[9]) if r[9] is not None else False,
+            "notes":      r[10],
         }
         for r in rows
     ]
+
+
+def add_custom_event(date_key: str, title: str, start_time: str,
+                     end_time: str, is_all_day: bool, color: str, notes: str) -> bool:
+    """Add a user-created custom event.
+    date_key  — 'YYYY-MM-DD' of the clicked calendar cell
+    start_time — 'HH:MM' or empty string
+    end_time   — 'HH:MM' or empty string
+    Returns True on success."""
+    event_time = date_key if (is_all_day or not start_time) else f"{date_key} {start_time}"
+    now        = datetime.now(timezone.utc).isoformat()
+    custom_id  = f"custom_{uuid.uuid4().hex[:12]}"
+    with sqlite3.connect(CAL_DB) as conn:
+        conn.execute(
+            'INSERT INTO calendar_events '
+            '(email_id, label, event_time, source, category, added_at, color, end_time, is_all_day, notes) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (custom_id, title, event_time, "custom", None, now,
+             color, end_time or None, int(is_all_day), notes or None)
+        )
+    return True
 
 
 def delete_event(event_id: int):

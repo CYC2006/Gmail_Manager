@@ -14,6 +14,18 @@ from src.calendar_db import get_all_events, delete_event
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+# Color palette for user-created custom events.
+# Excludes Moodle orange and lecture teal to preserve visual distinction.
+CUSTOM_EVENT_COLORS = [
+    {"id": "rose",   "dot": "#f87171", "bg": "#7f1d1d", "text": "#fca5a5"},
+    {"id": "amber",  "dot": "#fbbf24", "bg": "#78350f", "text": "#fde68a"},
+    {"id": "green",  "dot": "#4ade80", "bg": "#14532d", "text": "#86efac"},
+    {"id": "purple", "dot": "#c084fc", "bg": "#581c87", "text": "#e9d5ff"},
+    {"id": "pink",   "dot": "#f472b6", "bg": "#831843", "text": "#fbcfe8"},
+    {"id": "slate",  "dot": "#94a3b8", "bg": "#1e293b", "text": "#cbd5e1"},
+]
+_COLOR_MAP = {c["id"]: c for c in CUSTOM_EVENT_COLORS}
+
 
 # ---------------------------------------------------------------------------
 # Date parsing
@@ -80,13 +92,20 @@ def _parse_date_key(event_time: str) -> str | None:
 
 def _event_chip(ev: dict, on_delete, on_open) -> ft.Control:
     """One clickable event row inside a day cell."""
-    is_moodle = ev["source"] == "moodle_auto"
-    # orange background for moodle auto-added, blue for manually added
-    bg_color   = "#7c3a00" if is_moodle else "#0d3a6e"
-    text_color = ft.Colors.ORANGE_200 if is_moodle else ft.Colors.BLUE_200
+    source = ev.get("source", "manual")
 
-    # show category if available, otherwise fall back to label
-    display_text = ev.get("category") or ev.get("label", "")
+    if source == "custom":
+        # user-created event: use chosen color, display title directly
+        c_entry      = _COLOR_MAP.get(ev.get("color") or "", CUSTOM_EVENT_COLORS[-1])
+        bg_color     = c_entry["bg"]
+        text_color   = c_entry["text"]
+        display_text = ev.get("label", "")
+    else:
+        # Moodle auto or manually added email event
+        is_moodle  = source == "moodle_auto"
+        bg_color   = "#7c3a00" if is_moodle else "#0d3a6e"
+        text_color = ft.Colors.ORANGE_200 if is_moodle else ft.Colors.BLUE_200
+        display_text = ev.get("category") or ev.get("label", "")
 
     # append time portion for compact display (e.g. "23:59")
     tm = _re.search(r'(\d{2}:\d{2})', ev["event_time"])
@@ -97,8 +116,8 @@ def _event_chip(ev: dict, on_delete, on_open) -> ft.Control:
         delete_event(_id)
         on_delete()
 
-    def _open(e, _eid=ev["email_id"]):
-        on_open(_eid)
+    def _open(e, _ev=ev):
+        on_open(_ev)   # pass full event dict so caller can route custom vs email
 
     chip = ft.Container(
         content=ft.Row(
@@ -137,7 +156,7 @@ def _event_chip(ev: dict, on_delete, on_open) -> ft.Control:
 # Main builder
 # ---------------------------------------------------------------------------
 
-def build_calendar_months(on_delete_event, on_open_event) -> list:
+def build_calendar_months(on_delete_event, on_open_event, on_create_event=None) -> list:
     """Return a list of Flet controls for 14 months (Month-2 to Month+11).
     The current month's title container is tagged with key='current_month'
     for use with scroll_to(scroll_key='current_month').
@@ -214,31 +233,40 @@ def build_calendar_months(on_delete_event, on_open_event) -> list:
                     for ev in day_events
                 ]
 
-                cells.append(
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.Container(
-                                    content=ft.Text(
-                                        str(day), size=12,
-                                        color=num_color,
-                                        weight=ft.FontWeight.BOLD,
-                                        text_align=ft.TextAlign.CENTER,
-                                    ),
-                                    bgcolor=num_bg,
-                                    border_radius=12,
-                                    width=24, height=24,
-                                    alignment=ft.Alignment(0, 0),
+                cell = ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Container(
+                                content=ft.Text(
+                                    str(day), size=12,
+                                    color=num_color,
+                                    weight=ft.FontWeight.BOLD,
+                                    text_align=ft.TextAlign.CENTER,
                                 ),
-                                *event_chips,
-                            ],
-                            spacing=2,
+                                bgcolor=num_bg,
+                                border_radius=12,
+                                width=24, height=24,
+                                alignment=ft.Alignment(0, 0),
+                            ),
+                            *event_chips,
+                        ],
+                        spacing=2,
+                    ),
+                    expand=True,
+                    height=cell_height,
+                    bgcolor="#1e1e1e",
+                    border_radius=6,
+                    padding=ft.Padding.all(6),
+                )
+                # double-tap the cell to open the create-event modal
+                cells.append(
+                    ft.GestureDetector(
+                        on_double_tap=(
+                            (lambda e, dk=date_key: on_create_event(dk))
+                            if on_create_event else None
                         ),
                         expand=True,
-                        height=cell_height,
-                        bgcolor="#1e1e1e",
-                        border_radius=6,
-                        padding=ft.Padding.all(6),
+                        content=cell,
                     )
                 )
 

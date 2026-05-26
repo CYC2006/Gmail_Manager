@@ -1,4 +1,5 @@
 import os.path
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -27,8 +28,17 @@ def get_gmail_service():
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                # Token has been revoked or expired beyond silent refresh.
+                # Delete the stale token file and fall through to browser re-auth.
+                print("[AUTH] Token expired/revoked — launching browser re-authentication.")
+                if os.path.exists("token.json"):
+                    os.remove("token.json")
+                creds = None
+
+        if not creds or not creds.valid:
             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
             creds = flow.run_local_server(port=0)
 

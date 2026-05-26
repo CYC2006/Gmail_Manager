@@ -16,8 +16,8 @@ from src.email_actions import mark_as_read, toggle_star, archive_email, trash_em
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
-from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key, delete_events_by_email_id
-from src.calendar_view import build_calendar_months
+from src.calendar_db import init_calendar_db, add_event, event_exists, delete_event_by_key, delete_events_by_email_id, add_custom_event, delete_event
+from src.calendar_view import build_calendar_months, CUSTOM_EVENT_COLORS
 from src.settings.api_keys import build_api_keys_tab
 from src.settings.preference import build_preference_tab
 
@@ -568,12 +568,13 @@ def main(page: ft.Page):
             shown_email_ids.pop(email_id, None)
             all_emails[:] = [item for item in all_emails if item['id'] != email_id]
             fill_next_email()
-        live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-        if data.get('is_unread'):
-            live_stats["unread"] = max(0, live_stats["unread"] - 1)
-        if data.get('is_starred'):
-            live_stats["starred"] = max(0, live_stats["starred"] - 1)
-        update_stats_display()
+            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+            if data.get('is_unread'):
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+            if data.get('is_starred'):
+                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            update_stats_display()
+        await asyncio.sleep(0)           # let Flutter flush the render before background work
         await _call_with_ssl_retry(archive_email, email_id)
 
     async def _modal_on_trash(e):
@@ -590,12 +591,13 @@ def main(page: ft.Page):
             shown_email_ids.pop(email_id, None)
             all_emails[:] = [item for item in all_emails if item['id'] != email_id]
             fill_next_email()
-        live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-        if data.get('is_unread'):
-            live_stats["unread"] = max(0, live_stats["unread"] - 1)
-        if data.get('is_starred'):
-            live_stats["starred"] = max(0, live_stats["starred"] - 1)
-        update_stats_display()
+            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+            if data.get('is_unread'):
+                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+            if data.get('is_starred'):
+                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            update_stats_display()
+        await asyncio.sleep(0)           # let Flutter flush the render before background work
         await asyncio.to_thread(delete_analysis, email_id)
         await asyncio.to_thread(delete_events_by_email_id, email_id)
         await _call_with_ssl_retry(trash_email, email_id)
@@ -694,7 +696,10 @@ def main(page: ft.Page):
     # ====================
 
     async def _call_with_ssl_retry(fn, *args):
-        """Call a Gmail API function; on SSL error rebuild the service and retry once."""
+        """Call a Gmail API function.
+        - On SSL/connection error: rebuild service and retry once.
+        - On auth error (token revoked mid-session): re-authenticate via browser and retry.
+        """
         try:
             await asyncio.to_thread(fn, svc["service"], *args)
         except (ssl.SSLError, OSError) as ex:
@@ -703,6 +708,15 @@ def main(page: ft.Page):
             print(f"[SSL] Connection stale, rebuilding service and retrying... ({ex})")
             svc["service"] = await asyncio.to_thread(get_gmail_service)
             await asyncio.to_thread(fn, svc["service"], *args)
+        except Exception as ex:
+            err = str(ex).lower()
+            if "invalid_grant" in err or "token" in err and "expired" in err:
+                # Token revoked mid-session — trigger silent re-auth (browser opens if needed)
+                print(f"[AUTH] Token revoked mid-session, re-authenticating... ({ex})")
+                svc["service"] = await asyncio.to_thread(get_gmail_service)
+                await asyncio.to_thread(fn, svc["service"], *args)
+            else:
+                raise
 
     # returns True if the email was sent from Moodle
     def is_moodle(data) -> bool:
@@ -782,13 +796,14 @@ def main(page: ft.Page):
                 shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
-            # adjust counts for the removed email
-            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-            if data.get('is_unread'):
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
-            if data.get('is_starred'):
-                live_stats["starred"] = max(0, live_stats["starred"] - 1)
-            update_stats_display()
+                # adjust counts inside the lock so page.update() is called exactly once
+                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                if data.get('is_unread'):
+                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                if data.get('is_starred'):
+                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                update_stats_display()
+            await asyncio.sleep(0)           # let Flutter flush before background work
             await _call_with_ssl_retry(archive_email, email_id)
 
         async def on_trash(e, card_ref):
@@ -798,13 +813,14 @@ def main(page: ft.Page):
                 shown_email_ids.pop(email_id, None)
                 all_emails[:] = [item for item in all_emails if item['id'] != email_id]
                 fill_next_email()
-            # adjust counts for the removed email
-            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-            if data.get('is_unread'):
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
-            if data.get('is_starred'):
-                live_stats["starred"] = max(0, live_stats["starred"] - 1)
-            update_stats_display()
+                # adjust counts inside the lock so page.update() is called exactly once
+                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                if data.get('is_unread'):
+                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                if data.get('is_starred'):
+                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                update_stats_display()
+            await asyncio.sleep(0)           # let Flutter flush before background work
             # remove from local cache and calendar before trashing on Gmail
             await asyncio.to_thread(delete_analysis, email_id)
             await asyncio.to_thread(delete_events_by_email_id, email_id)
@@ -1076,7 +1092,50 @@ def main(page: ft.Page):
         try:
             # build Gmail service only on the first run; reuse afterwards
             if not svc["service"]:
+                # show a notice while the browser OAuth window may be opening
+                email_list_view.controls.clear()
+                email_list_view.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.ProgressRing(width=32, height=32, stroke_width=3),
+                                ft.Text(
+                                    "正在驗證 Google 帳號…\nConnecting to Google — a browser window may open.",
+                                    color=ft.Colors.BLUE_GREY_400,
+                                    text_align=ft.TextAlign.CENTER,
+                                    size=13,
+                                ),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=12,
+                        ),
+                        alignment=ft.Alignment(0, 0),
+                        expand=True,
+                        padding=ft.Padding.only(top=80),
+                    )
+                )
+                page.update()
+
                 svc["service"] = await asyncio.to_thread(get_gmail_service)
+
+                if not svc["service"]:
+                    email_list_view.controls.clear()
+                    email_list_view.controls.append(
+                        ft.Container(
+                            content=ft.Text(
+                                "無法連線至 Gmail。\nFailed to connect to Gmail.",
+                                color=ft.Colors.RED_400,
+                                text_align=ft.TextAlign.CENTER,
+                                size=13,
+                            ),
+                            alignment=ft.Alignment(0, 0),
+                            expand=True,
+                            padding=ft.Padding.only(top=80),
+                        )
+                    )
+                    page.update()
+                    return
 
                 # fetch the authenticated user's email address for the sidebar
                 try:
@@ -1208,19 +1267,23 @@ def main(page: ft.Page):
     # scrollable inner list — rebuilt with fresh event data on every view switch
     cal_scroll = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
 
-    def _on_calendar_event_open(email_id):
-        """Called when user double-taps a calendar event chip."""
+    def _on_calendar_event_open(ev: dict):
+        """Called when user double-taps a calendar event chip (receives full event dict)."""
+        if ev.get("source") == "custom":
+            _cv_open(ev)
+            return
+        # email-backed event — open the email detail modal
+        email_id = ev["email_id"]
         data = next((e for e in all_emails if e['id'] == email_id), None)
         if data is None:
-            # Email not loaded this session — reconstruct from cache DB
             cached = get_cached_result(email_id)
             if cached:
                 data = {
-                    "id":       email_id,
-                    "subject":  cached.get("summary") or "(No Subject)",
-                    "sender":   cached.get("sender") or "Unknown",
-                    "time":     cached.get("time") or "",
-                    "category": cached.get("category"),
+                    "id":        email_id,
+                    "subject":   cached.get("summary") or "(No Subject)",
+                    "sender":    cached.get("sender") or "Unknown",
+                    "time":      cached.get("time") or "",
+                    "category":  cached.get("category"),
                     "is_unread": False,
                 }
         if data:
@@ -1230,14 +1293,347 @@ def main(page: ft.Page):
         await asyncio.sleep(0.1)
         await cal_scroll.scroll_to(scroll_key="current_month", duration=0)
 
-    def _refresh_calendar():
+    def _refresh_calendar(scroll_to_current=True):
         """Reload all events from DB and rebuild the calendar grid in cal_scroll."""
+        page.update()   # flush panel visibility before the (slightly slow) build
         cal_scroll.controls = build_calendar_months(
             on_delete_event=_refresh_calendar,
             on_open_event=_on_calendar_event_open,
+            on_create_event=_ce_open,
         )
         page.update()
-        page.run_task(_scroll_to_current_month)
+        if scroll_to_current:
+            page.run_task(_scroll_to_current_month)
+
+    # ====================
+    # Create Event Modal
+    # ====================
+
+    _ce_date     = [""]
+    _ce_all_day  = [False]
+    _ce_color    = [CUSTOM_EVENT_COLORS[0]["id"]]
+    _ce_dot_refs = {}
+
+    _ce_date_label  = ft.Text("", size=13, color=ft.Colors.OUTLINE)
+    _ce_title_field = ft.TextField(
+        label="Title", hint_text="Event title…",
+        border_color=ft.Colors.OUTLINE_VARIANT,
+        focused_border_color=ft.Colors.BLUE_400,
+        text_style=ft.TextStyle(color=ft.Colors.WHITE),
+    )
+    _ce_notes_field = ft.TextField(
+        hint_text="Add details…",
+        multiline=True, min_lines=3, max_lines=5,
+        border_color=ft.Colors.OUTLINE_VARIANT,
+        focused_border_color=ft.Colors.BLUE_400,
+        text_style=ft.TextStyle(color=ft.Colors.WHITE),
+    )
+
+    # ── dropdown time pickers (fix 5): hours 00-23, minutes every 5 min ──
+    _HOUR_OPTS   = [f"{h:02d}" for h in range(24)]
+    _MINUTE_OPTS = [f"{m:02d}" for m in range(0, 60, 5)]
+
+    def _make_time_dd(options, default):
+        return ft.Dropdown(
+            options=[ft.dropdown.Option(o) for o in options],
+            value=default,
+            width=85,
+            bgcolor="#2a2a2a",
+            border_color=ft.Colors.OUTLINE_VARIANT,
+            focused_border_color=ft.Colors.BLUE_400,
+            text_style=ft.TextStyle(color=ft.Colors.WHITE, size=14),
+        )
+
+    _ce_start_h_dd = _make_time_dd(_HOUR_OPTS,   "09")
+    _ce_start_m_dd = _make_time_dd(_MINUTE_OPTS, "00")
+    _ce_end_h_dd   = _make_time_dd(_HOUR_OPTS,   "10")
+    _ce_end_m_dd   = _make_time_dd(_MINUTE_OPTS, "00")
+
+    def _ce_time_group(label_text, h_dd, m_dd):
+        return ft.Column([
+            ft.Text(label_text, size=12, color=ft.Colors.OUTLINE),
+            ft.Row([
+                h_dd,
+                ft.Text(":", size=16, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+                m_dd,
+            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=6)
+
+    _ce_time_row = ft.Row(
+        [
+            _ce_time_group("Start", _ce_start_h_dd, _ce_start_m_dd),
+            ft.Container(expand=True),
+            _ce_time_group("End",   _ce_end_h_dd,   _ce_end_m_dd),
+        ],
+        visible=True,
+    )
+
+    def _ce_btn_style(active: bool) -> ft.ButtonStyle:
+        return ft.ButtonStyle(
+            color=ft.Colors.WHITE if active else ft.Colors.GREY_500,
+            bgcolor={"": "#3a3a3a" if active else "transparent"},
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            shape=ft.RoundedRectangleBorder(radius=6),
+        )
+
+    _ce_timed_btn  = ft.TextButton("Timed",   style=_ce_btn_style(True),  on_click=lambda e: _ce_toggle_allday(False))
+    _ce_allday_btn = ft.TextButton("All day", style=_ce_btn_style(False), on_click=lambda e: _ce_toggle_allday(True))
+
+    def _ce_toggle_allday(is_all_day: bool):
+        _ce_all_day[0]       = is_all_day
+        _ce_time_row.visible = not is_all_day
+        _ce_timed_btn.style  = _ce_btn_style(not is_all_day)
+        _ce_allday_btn.style = _ce_btn_style(is_all_day)
+        page.update()
+
+    def _ce_select_color(color_id: str):
+        _ce_color[0] = color_id
+        for cid, dot in _ce_dot_refs.items():
+            dot.border = ft.Border.all(2, ft.Colors.WHITE) if cid == color_id else None
+        page.update()
+
+    # ── color dots (fix 2): evenly spaced with SPACE_BETWEEN ──
+    _ce_dot_controls = []
+    for _c in CUSTOM_EVENT_COLORS:
+        _dot = ft.Container(
+            width=24, height=24, border_radius=12,
+            bgcolor=_c["dot"],
+            border=ft.Border.all(2, ft.Colors.WHITE) if _c["id"] == _ce_color[0] else None,
+        )
+        _ce_dot_refs[_c["id"]] = _dot
+        _ce_dot_controls.append(
+            ft.GestureDetector(
+                mouse_cursor=ft.MouseCursor.CLICK,
+                on_tap=lambda e, cid=_c["id"]: _ce_select_color(cid),
+                content=_dot,
+            )
+        )
+    _ce_color_row = ft.Row(
+        _ce_dot_controls,
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    )
+
+    def _ce_close(e=None):
+        create_event_overlay.visible = False
+        page.update()
+
+    def _ce_save(e):
+        title = (_ce_title_field.value or "").strip()
+        if not title:
+            _ce_title_field.error_text = "Title is required"
+            page.update()
+            return
+        _ce_title_field.error_text = None
+        if _ce_all_day[0]:
+            start_time, end_time = "", ""
+        else:
+            start_time = f"{_ce_start_h_dd.value}:{_ce_start_m_dd.value}"
+            end_time   = f"{_ce_end_h_dd.value}:{_ce_end_m_dd.value}"
+        add_custom_event(
+            date_key   = _ce_date[0],
+            title      = title,
+            start_time = start_time,
+            end_time   = end_time,
+            is_all_day = _ce_all_day[0],
+            color      = _ce_color[0],
+            notes      = (_ce_notes_field.value or "").strip(),
+        )
+        _ce_close()
+        # fix 4: do NOT scroll back to current month — stay wherever the user was
+        _refresh_calendar(scroll_to_current=False)
+
+    def _ce_open(date_key: str):
+        _ce_date[0]                = date_key
+        _ce_date_label.value       = date_key
+        _ce_title_field.value      = ""
+        _ce_title_field.error_text = None
+        _ce_notes_field.value      = ""
+        _ce_start_h_dd.value = "09"; _ce_start_m_dd.value = "00"
+        _ce_end_h_dd.value   = "10"; _ce_end_m_dd.value   = "00"
+        _ce_toggle_allday(False)
+        _ce_select_color(CUSTOM_EVENT_COLORS[0]["id"])
+        create_event_overlay.visible = True
+        page.update()
+
+    create_event_overlay = ft.Stack(
+        visible=False,
+        expand=True,
+        controls=[
+            ft.Container(expand=True, bgcolor=ft.Colors.with_opacity(0.55, "#000000")),
+            ft.GestureDetector(
+                on_tap=lambda e: _ce_close(),
+                content=ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.GestureDetector(
+                        on_tap=lambda e: None,   # absorb taps inside the box
+                        content=ft.Container(
+                            width=460,
+                            bgcolor="#1e1e1e",
+                            border_radius=14,
+                            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                            padding=ft.Padding.all(24),
+                            content=ft.Column(
+                                tight=True,
+                                spacing=16,
+                                # fix 1: STRETCH makes every child fill the full column width
+                                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                                controls=[
+                                    # header
+                                    ft.Row([
+                                        ft.Text("New Event", size=18,
+                                                weight=ft.FontWeight.BOLD,
+                                                color=ft.Colors.WHITE),
+                                        ft.Container(expand=True),
+                                        ft.IconButton(icon=ft.Icons.CLOSE,
+                                                      icon_size=18, on_click=_ce_close),
+                                    ]),
+                                    # date label
+                                    ft.Row([
+                                        ft.Icon(ft.Icons.CALENDAR_TODAY,
+                                                size=14, color=ft.Colors.OUTLINE),
+                                        _ce_date_label,
+                                    ], spacing=6),
+                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                    # title — stretches to full width via STRETCH
+                                    _ce_title_field,
+                                    # timed / all-day toggle
+                                    ft.Row([_ce_timed_btn, _ce_allday_btn], spacing=4),
+                                    # time dropdowns
+                                    _ce_time_row,
+                                    # color picker
+                                    ft.Column([
+                                        ft.Text("Color", size=12,
+                                                color=ft.Colors.OUTLINE),
+                                        _ce_color_row,
+                                    ], spacing=8),
+                                    # fix 3: "Notes" label above field so hint sits top-left
+                                    ft.Column([
+                                        ft.Text("Notes", size=12,
+                                                color=ft.Colors.OUTLINE),
+                                        _ce_notes_field,
+                                    ], spacing=6,
+                                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+                                    # action buttons
+                                    ft.Row([
+                                        ft.Container(expand=True),
+                                        ft.TextButton("Cancel", on_click=_ce_close),
+                                        ft.Button(
+                                            "Add Event", on_click=_ce_save,
+                                            bgcolor=ft.Colors.BLUE_700,
+                                            color=ft.Colors.WHITE,
+                                        ),
+                                    ]),
+                                ],
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ],
+    )
+
+    # ====================
+    # Custom Event View
+    # ====================
+
+    _cv_event      = [None]
+    _cv_title_text = ft.Text("", size=17, weight=ft.FontWeight.BOLD,
+                             color=ft.Colors.WHITE, selectable=True)
+    _cv_time_text  = ft.Text("", size=13, color=ft.Colors.OUTLINE)
+    _cv_notes_text = ft.Text("", size=13, color="#dddddd", selectable=True)
+    _cv_color_dot  = ft.Container(width=12, height=12, border_radius=6, bgcolor="#94a3b8")
+
+    def _cv_close(e=None):
+        ce_view_overlay.visible = False
+        page.update()
+
+    def _cv_delete(e):
+        if _cv_event[0]:
+            delete_event(_cv_event[0]["id"])
+        _cv_close()
+        _refresh_calendar()
+
+    def _cv_open(ev: dict):
+        _cv_event[0]         = ev
+        _cv_title_text.value = ev.get("label", "")
+
+        time_parts = []
+        if ev.get("is_all_day"):
+            time_parts.append("All day")
+        else:
+            tm = ev.get("event_time", "")
+            hm = tm[11:16] if len(tm) > 10 else ""
+            if hm:
+                time_parts.append(f"Start  {hm}")
+            if ev.get("end_time"):
+                time_parts.append(f"End  {ev['end_time']}")
+        _cv_time_text.value = "   ·   ".join(time_parts)
+
+        c_entry = next(
+            (c for c in CUSTOM_EVENT_COLORS if c["id"] == ev.get("color", "")),
+            CUSTOM_EVENT_COLORS[-1]
+        )
+        _cv_color_dot.bgcolor = c_entry["dot"]
+        _cv_notes_text.value  = ev.get("notes") or ""
+
+        ce_view_overlay.visible = True
+        page.update()
+
+    ce_view_overlay = ft.Stack(
+        visible=False,
+        expand=True,
+        controls=[
+            ft.Container(expand=True, bgcolor=ft.Colors.with_opacity(0.55, "#000000")),
+            ft.GestureDetector(
+                on_tap=lambda e: _cv_close(),
+                content=ft.Container(
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    content=ft.GestureDetector(
+                        on_tap=lambda e: None,
+                        content=ft.Container(
+                            width=400,
+                            bgcolor="#1e1e1e",
+                            border_radius=14,
+                            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                            padding=ft.Padding.all(24),
+                            content=ft.Column(
+                                tight=True,
+                                spacing=14,
+                                controls=[
+                                    ft.Row([
+                                        _cv_color_dot,
+                                        ft.Container(content=_cv_title_text,
+                                                     expand=True,
+                                                     padding=ft.Padding.only(left=8)),
+                                        ft.IconButton(icon=ft.Icons.CLOSE,
+                                                      icon_size=18, on_click=_cv_close),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.START),
+                                    ft.Row([
+                                        ft.Icon(ft.Icons.SCHEDULE, size=14,
+                                                color=ft.Colors.OUTLINE),
+                                        _cv_time_text,
+                                    ], spacing=6),
+                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                    ft.Text("Notes", size=12, color=ft.Colors.OUTLINE),
+                                    _cv_notes_text,
+                                    ft.Row([
+                                        ft.Container(expand=True),
+                                        ft.TextButton(
+                                            "Delete event",
+                                            style=ft.ButtonStyle(color=ft.Colors.RED_400),
+                                            on_click=_cv_delete,
+                                        ),
+                                    ]),
+                                ],
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ],
+    )
 
     # sticky day-of-week header above the scrollable grid
     cal_header = ft.Row(
@@ -1434,6 +1830,8 @@ def main(page: ft.Page):
                     ]
                 ),
                 modal_overlay,
+                create_event_overlay,
+                ce_view_overlay,
             ]
         )
     )
