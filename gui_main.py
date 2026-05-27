@@ -85,7 +85,7 @@ def main(page: ft.Page):
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
                 padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="Inbox 總數",
+                tooltip="Total inbox",
             ),
             ft.Container(
                 content=ft.Row([
@@ -94,7 +94,7 @@ def main(page: ft.Page):
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
                 padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="未讀數",
+                tooltip="Unread",
             ),
             ft.Container(
                 content=ft.Row([
@@ -103,7 +103,7 @@ def main(page: ft.Page):
                 ], spacing=3),
                 bgcolor="#2a2a2a", border_radius=6,
                 padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="星號數",
+                tooltip="Starred",
             ),
         ],
         spacing=6,
@@ -117,17 +117,17 @@ def main(page: ft.Page):
     def update_stats_display():
         # for inbox: use live_stats which mirrors the API count adjusted by user actions
         if current_view[0] == "inbox":
-            stats_row.controls[0].tooltip = "Inbox 總數"
-            stats_row.controls[1].tooltip = "未讀數"
-            stats_row.controls[2].tooltip = "星號數"
+            stats_row.controls[0].tooltip = "Total inbox"
+            stats_row.controls[1].tooltip = "Unread"
+            stats_row.controls[2].tooltip = "Starred"
             inbox_text.value   = str(live_stats["inbox"])
             unread_text.value  = str(live_stats["unread"])
             starred_text.value = str(live_stats["starred"])
         # for moodle: recount directly from all_emails filtered to moodle only
         elif current_view[0] == "moodle":
-            stats_row.controls[0].tooltip = "Moodle 總數"
-            stats_row.controls[1].tooltip = "Moodle 未讀數"
-            stats_row.controls[2].tooltip = "Moodle 星號數"
+            stats_row.controls[0].tooltip = "Total Moodle"
+            stats_row.controls[1].tooltip = "Moodle unread"
+            stats_row.controls[2].tooltip = "Moodle starred"
             moodle = [e for e in all_emails if "moodle" in e['sender'].lower()]
             inbox_text.value   = str(len(moodle))
             unread_text.value  = str(sum(1 for e in moodle if e.get('is_unread')))
@@ -150,7 +150,7 @@ def main(page: ft.Page):
         icon=ft.Icons.OPEN_IN_NEW,
         icon_color=ft.Colors.BLUE_400,
         icon_size=22,
-        tooltip="在 Gmail 中開啟",
+        tooltip="Open in Gmail",
         url="",
         on_click=_on_gmail_btn_click,
     )
@@ -197,7 +197,7 @@ def main(page: ft.Page):
         padding=ft.Padding.all(8),
         border_radius=6,
         bgcolor=ft.Colors.BLUE_700,
-        tooltip="原文內容",
+        tooltip="Raw content",
         on_click=lambda e: switch_modal_tab("raw"),
     )
     modal_ai_tab = ft.Container(
@@ -205,7 +205,7 @@ def main(page: ft.Page):
         padding=ft.Padding.all(8),
         border_radius=6,
         bgcolor=None,
-        tooltip="信件分析",
+        tooltip="AI analysis",
         on_click=lambda e: switch_modal_tab("ai"),
     )
 
@@ -256,7 +256,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Row([
                         ft.ProgressRing(width=16, height=16, stroke_width=2),
-                        ft.Text("分析中...", size=13, color=ft.Colors.OUTLINE),
+                        ft.Text("Analyzing...", size=13, color=ft.Colors.OUTLINE),
                     ], spacing=8),
                     padding=ft.Padding.only(top=16),
                 )
@@ -271,7 +271,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=ft.Colors.RED_400),
-                        ft.Text("AI 分析失敗，請稍後再試。", size=13, color=ft.Colors.RED_400),
+                        ft.Text("AI analysis failed. Please try again.", size=13, color=ft.Colors.RED_400),
                     ], spacing=8),
                     padding=ft.Padding.only(top=16),
                 )
@@ -293,7 +293,7 @@ def main(page: ft.Page):
         # 摘要
         if result.get("summary"):
             modal_ai_scroll.controls += [
-                section_header(ft.Icons.SUMMARIZE, "摘要"),
+                section_header(ft.Icons.SUMMARIZE, "Summary"),
                 ft.Container(
                     content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
                     padding=ft.Padding.only(left=8, bottom=4),
@@ -303,7 +303,7 @@ def main(page: ft.Page):
         # ── 待辦事項 ──
         if result.get("action_required"):
             modal_ai_scroll.controls += [
-                section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "待辦事項"),
+                section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "Action Items"),
                 ft.Container(
                     content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
                     padding=ft.Padding.only(left=8, bottom=4),
@@ -312,7 +312,7 @@ def main(page: ft.Page):
 
         # ── 重要時間 ──
         if result.get("event_times"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "重要時間"))
+            modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "Key Dates"))
             for item in result["event_times"]:
                 lbl = item.get("label", "")
                 t   = item.get("time", "")
@@ -324,7 +324,7 @@ def main(page: ft.Page):
                     icon=ft.Icons.EVENT_AVAILABLE if already_added else ft.Icons.CALENDAR_TODAY,
                     icon_size=14,
                     icon_color=ft.Colors.GREEN_400 if already_added else ft.Colors.BLUE_GREY_400,
-                    tooltip="已在行事曆中" if already_added else "加入行事曆",
+                    tooltip="Added to calendar" if already_added else "Add to calendar",
                     style=ft.ButtonStyle(padding=ft.Padding.all(2)),
                 )
 
@@ -337,15 +337,15 @@ def main(page: ft.Page):
                             delete_event_by_key(_eid, _t)
                             _btn.icon       = ft.Icons.CALENDAR_TODAY
                             _btn.icon_color = ft.Colors.BLUE_GREY_400
-                            _btn.tooltip    = "加入行事曆"
-                            print(f"[CAL] 已從行事曆移除 — {_lbl}: {_t}")
+                            _btn.tooltip    = "Add to calendar"
+                            print(f"[CAL] Removed from calendar — {_lbl}: {_t}")
                         else:
                             # not in calendar — add it
                             add_event(_eid, _lbl, _t, source="manual", category=_cat)
                             _btn.icon       = ft.Icons.EVENT_AVAILABLE
                             _btn.icon_color = ft.Colors.GREEN_400
-                            _btn.tooltip    = "已在行事曆中"
-                            print(f"[CAL] 已加入行事曆 — {_lbl}: {_t}")
+                            _btn.tooltip    = "Added to calendar"
+                            print(f"[CAL] Added to calendar — {_lbl}: {_t}")
                         page.update()
                     except Exception as ex:
                         print(f"[CAL] Failed to toggle event: {ex}")
@@ -368,7 +368,7 @@ def main(page: ft.Page):
 
         # ── 相關連結 ──
         if result.get("urls"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "相關連結"))
+            modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "Related Links"))
             for item in result["urls"]:
                 url = item.get("url", "")
                 modal_ai_scroll.controls.append(
@@ -390,7 +390,7 @@ def main(page: ft.Page):
 
         # ── 重點整理 ──
         if result.get("key_points"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "重點整理"))
+            modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "Key Points"))
             for point in result["key_points"]:
                 modal_ai_scroll.controls.append(
                     ft.Container(
@@ -467,7 +467,7 @@ def main(page: ft.Page):
                 try:
                     await asyncio.to_thread(mark_as_read, svc["service"], email_id)
                 except Exception as ex:
-                    print(f"[WARN] 標示已讀失敗: {ex}")
+                    print(f"[WARN] Failed to mark as read: {ex}")
 
             # fresh service so it doesn't race with background fetch
             modal_service = await asyncio.to_thread(get_gmail_service)
@@ -515,21 +515,21 @@ def main(page: ft.Page):
         icon=ft.Icons.STAR_BORDER,
         icon_size=20,
         icon_color=ft.Colors.YELLOW_600,
-        tooltip="加星號",
+        tooltip="Star",
         padding=ft.Padding.all(2),
     )
     modal_archive_btn = ft.IconButton(
         icon=ft.Icons.ARCHIVE,
         icon_size=20,
         icon_color=ft.Colors.GREEN_400,
-        tooltip="封存",
+        tooltip="Archive",
         padding=ft.Padding.all(2),
     )
     modal_trash_btn = ft.IconButton(
         icon=ft.Icons.DELETE,
         icon_size=20,
         icon_color=ft.Colors.RED_400,
-        tooltip="刪除",
+        tooltip="Delete",
         padding=ft.Padding.all(2),
     )
 
@@ -831,7 +831,7 @@ def main(page: ft.Page):
             await asyncio.to_thread(delete_events_by_email_id, email_id)
             await _call_with_ssl_retry(trash_email, email_id)
 
-        async def on_double_tap(e):
+        async def on_tap(e):
             # update card read visual immediately (card_inner is local to this closure)
             if data.get('is_unread'):
                 card_inner.bgcolor = "#2a2a2a"
@@ -875,7 +875,7 @@ def main(page: ft.Page):
             icon_size=18,
             padding=ft.Padding.all(2),
             icon_color=ft.Colors.YELLOW_600,
-            tooltip="加星號",
+            tooltip="Star",
             on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
         )
         data['_star_btn_ref'] = _card_star_btn
@@ -900,7 +900,7 @@ def main(page: ft.Page):
                                         icon=ft.Icons.MARK_EMAIL_READ,
                                         icon_size=18,
                                         padding=ft.Padding.all(2),
-                                        tooltip="標記已讀",
+                                        tooltip="Mark as read",
                                         on_click=lambda e: page.run_task(on_mark_read, e),
                                     ),
                                     _card_star_btn,
@@ -909,7 +909,7 @@ def main(page: ft.Page):
                                         icon_size=18,
                                         padding=ft.Padding.all(2),
                                         icon_color=ft.Colors.GREEN_400,
-                                        tooltip="封存",
+                                        tooltip="Archive",
                                         on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
                                     ),
                                     ft.IconButton(
@@ -917,7 +917,7 @@ def main(page: ft.Page):
                                         icon_size=18,
                                         padding=ft.Padding.all(2),
                                         icon_color=ft.Colors.RED_400,
-                                        tooltip="刪除",
+                                        tooltip="Delete",
                                         on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
                                     ),
                                 ],
@@ -950,7 +950,7 @@ def main(page: ft.Page):
             content=card_inner,
         )
         gesture = ft.GestureDetector(
-            on_double_tap=lambda e: page.run_task(on_double_tap, e),
+            on_tap=lambda e: page.run_task(on_tap, e),
             content=card,
         )
         # fill the forward reference with the outermost widget —
@@ -1680,7 +1680,7 @@ def main(page: ft.Page):
     # ====================
     # Settings Panel
     # ====================
-    settings_tab_state = ["appearance"]  # active tab
+    settings_tab_state = ["preference"]  # active tab — Preference is the default
 
     def _settings_placeholder(label):
         return ft.Container(
@@ -1689,13 +1689,12 @@ def main(page: ft.Page):
             alignment=ft.Alignment(0, 0),
         )
 
-
-
-    settings_content = ft.Container(expand=True, content=_settings_placeholder("Appearance"))
+    # Default content is Preference (first and most useful tab)
+    settings_content = ft.Container(expand=True, content=_pref_tab.content)
 
     _TAB_DEFS = [
-        ("appearance",    "Appearance",   ft.Icons.PALETTE),
         ("preference",    "Preference",   ft.Icons.TUNE),
+        ("appearance",    "Appearance",   ft.Icons.PALETTE),
         ("account",       "Account",      ft.Icons.MANAGE_ACCOUNTS),
         ("notifications", "Notifications",ft.Icons.NOTIFICATIONS),
         ("api_keys",      "API keys",     ft.Icons.KEY),

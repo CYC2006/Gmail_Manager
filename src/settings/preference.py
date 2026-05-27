@@ -41,7 +41,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
 
     # ---- save button (declared early so helpers can reference it) ----
     _save_btn = ft.ElevatedButton(
-        "儲存",
+        "Save",
         icon=ft.Icons.SAVE,
         disabled=True,
         style=ft.ButtonStyle(
@@ -92,7 +92,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         options=[
             ft.dropdown.Option(
                 key=d["id"],
-                text=f"{d['label']}（{d['abbr']}）",
+                text=f"{d['label']} ({d['abbr']})",
             )
             for d in options["major"]
         ],
@@ -145,7 +145,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         _saved_interests[0] = set(_selected_ids)
         _update_save_btn()
         page.snack_bar = ft.SnackBar(
-            content=ft.Text("偏好設定已儲存！", color=ft.Colors.WHITE),
+            content=ft.Text("Preferences saved!", color=ft.Colors.WHITE),
             duration=2000,
         )
         page.snack_bar.open = True
