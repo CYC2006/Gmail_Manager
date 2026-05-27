@@ -352,9 +352,7 @@ def build_api_keys_tab(page: ft.Page) -> SimpleNamespace:
                             ),
                             ft.Text(
                                 "• Never share your API key or post it online — treat it like a password.\n"
-                                "• Each key is tied to your Groq account and usage is billed against it.\n"
-                                "• Groq API keys have an expiration date. If requests start failing,\n"
-                                "  go to console.groq.com/keys, create a new key, and update it here.",
+                                "• Each key is tied to your Groq account and usage is billed against it.",
                                 size=12,
                                 color=ft.Colors.GREY_400,
                             ),
