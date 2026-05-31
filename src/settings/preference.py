@@ -149,7 +149,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
             padding=ft.Padding.symmetric(horizontal=8),
             content=ft.Row(
                 [icon_widget, label_text],
-                spacing=6,
+                spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
