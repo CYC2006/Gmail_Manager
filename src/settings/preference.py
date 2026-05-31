@@ -56,6 +56,13 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         ),
     )
 
+    # ---- chip grid layout constants ----
+    # Window is fixed 1100 px; sidebar 250 + 1 divider; main padding 30×2 = ~789 px available.
+    # 5 chips × 148 px + 4 gaps × 8 px = 772 px  →  fits comfortably.
+    _CHIP_W        = 148
+    _CHIPS_PER_ROW = 5
+    _CHIP_SPACING  = 8
+
     # ---- helpers ----
 
     def _update_save_btn():
@@ -71,23 +78,55 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         )
         page.update()
 
-    def _make_chip(option_id: str, label: str) -> ft.Chip:
-        def on_select(e):
-            if e.control.selected:
-                _selected_ids.add(option_id)
-            else:
-                _selected_ids.discard(option_id)
-            _update_save_btn()
+    def _chip_bgcolor(sel: bool):
+        return (ft.Colors.with_opacity(0.75, ft.Colors.BLUE_400) if sel
+                else ft.Colors.with_opacity(0.06, ft.Colors.WHITE))
 
-        return ft.Chip(
-            label=ft.Text(label, size=12, color=ft.Colors.GREY_200),
-            selected=option_id in _selected_ids,
-            on_select=on_select,
-            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE),
-            selected_color=ft.Colors.with_opacity(0.75, ft.Colors.BLUE_400),
-            show_checkmark=False,
-            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+    def _chip_border(sel: bool):
+        return (ft.Border.all(1, ft.Colors.BLUE_400) if sel
+                else ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE)))
+
+    def _chip_color(sel: bool):
+        return ft.Colors.WHITE if sel else ft.Colors.GREY_300
+
+    def _make_chip(option_id: str, label: str) -> ft.Container:
+        is_sel = option_id in _selected_ids
+
+        label_text = ft.Text(
+            label,
+            size=12,
+            color=_chip_color(is_sel),
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            text_align=ft.TextAlign.CENTER,
+            no_wrap=True,
         )
+        btn = ft.Container(
+            width=_CHIP_W,
+            height=36,
+            alignment=ft.Alignment(0, 0),
+            border_radius=6,
+            bgcolor=_chip_bgcolor(is_sel),
+            border=_chip_border(is_sel),
+            content=label_text,
+        )
+
+        def on_click(e):
+            sel = option_id in _selected_ids
+            if sel:
+                _selected_ids.discard(option_id)
+                sel = False
+            else:
+                _selected_ids.add(option_id)
+                sel = True
+            btn.bgcolor      = _chip_bgcolor(sel)
+            btn.border       = _chip_border(sel)
+            label_text.color = _chip_color(sel)
+            _update_save_btn()
+            page.update()
+
+        btn.on_click = on_click
+        return btn
 
     # ---- major dropdown ----
     _major_dropdown = ft.Dropdown(
@@ -113,11 +152,21 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
 
     _major_dropdown.on_select = _on_major_select
 
-    # ---- interest chips ----
+    # ---- interest chips — uniform grid ----
     interest_chips = [
         _make_chip(item["id"], item["label"])
         for item in options["interest"]
     ]
+
+    # Group chips into rows of exactly _CHIPS_PER_ROW (last row may be shorter)
+    _chip_rows = [
+        ft.Row(
+            interest_chips[i : i + _CHIPS_PER_ROW],
+            spacing=_CHIP_SPACING,
+        )
+        for i in range(0, len(interest_chips), _CHIPS_PER_ROW)
+    ]
+    interest_grid = ft.Column(_chip_rows, spacing=_CHIP_SPACING)
 
     interest_header_row = ft.Row(
         [
@@ -170,7 +219,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
                 ft.Container(height=12),
                 interest_header_row,
                 ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                ft.Row(interest_chips, wrap=True, spacing=6, run_spacing=6),
+                interest_grid,
                 ft.Container(expand=True),
                 ft.Row([_save_btn], alignment=ft.MainAxisAlignment.END),
             ],
