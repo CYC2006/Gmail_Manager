@@ -78,6 +78,58 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         )
         page.update()
 
+    # ---- icon mapping (one Material icon per interest id) ----
+    _INTEREST_ICONS: dict[str, str] = {
+        "ai_ml":          ft.Icons.PSYCHOLOGY,
+        "mobile":         ft.Icons.PHONE_ANDROID,
+        "webdev":         ft.Icons.WEB,
+        "coding_hobby":   ft.Icons.CODE,
+        "opensource":     ft.Icons.HUB,
+        "gaming":         ft.Icons.SPORTS_ESPORTS,
+        "anime":          ft.Icons.COLLECTIONS,
+        "boardgame":      ft.Icons.EXTENSION,
+        "crypto":         ft.Icons.MONETIZATION_ON,
+        "investing":      ft.Icons.SHOW_CHART,
+        "startup":        ft.Icons.ROCKET_LAUNCH,
+        "science":        ft.Icons.SCIENCE,
+        "politics":       ft.Icons.ACCOUNT_BALANCE,
+        "language":       ft.Icons.TRANSLATE,
+        "sustainability": ft.Icons.ECO,
+        "volunteering":   ft.Icons.VOLUNTEER_ACTIVISM,
+        "sports":         ft.Icons.SPORTS,
+        "film":           ft.Icons.MOVIE,
+        "literature":     ft.Icons.MENU_BOOK,
+        "writing":        ft.Icons.EDIT,
+        "theater":        ft.Icons.THEATER_COMEDY,
+        "music":          ft.Icons.MUSIC_NOTE,
+        "instrument":     ft.Icons.PIANO,
+        "singing":        ft.Icons.MIC,
+        "drawing":        ft.Icons.BRUSH,
+        "video_edit":     ft.Icons.MOVIE_FILTER,
+        "photo":          ft.Icons.CAMERA_ALT,
+        "dance":          ft.Icons.SELF_IMPROVEMENT,
+        "travel":         ft.Icons.FLIGHT,
+        "food":           ft.Icons.RESTAURANT,
+        "fashion":        ft.Icons.STYLE,
+        "coffee":         ft.Icons.LOCAL_CAFE,
+        "hiking":         ft.Icons.TERRAIN,
+        "rock_climbing":  ft.Icons.LANDSCAPE,
+        "cycling":        ft.Icons.DIRECTIONS_BIKE,
+        "running":        ft.Icons.DIRECTIONS_RUN,
+        "gym":            ft.Icons.FITNESS_CENTER,
+        "yoga":           ft.Icons.SPA,
+        "swimming":       ft.Icons.POOL,
+        "martial_arts":   ft.Icons.SPORTS_KABADDI,
+        "badminton":      ft.Icons.SPORTS_TENNIS,
+        "basketball":     ft.Icons.SPORTS_BASKETBALL,
+        "volleyball":     ft.Icons.SPORTS_VOLLEYBALL,
+        "table_tennis":   ft.Icons.SPORTS_TENNIS,
+        "chess":          ft.Icons.GRID_ON,
+        "handcraft":      ft.Icons.HANDYMAN,
+        "plants":         ft.Icons.YARD,
+        "pets":           ft.Icons.PETS,
+    }
+
     def _chip_bgcolor(sel: bool):
         return (ft.Colors.with_opacity(0.75, ft.Colors.BLUE_400) if sel
                 else ft.Colors.with_opacity(0.06, ft.Colors.WHITE))
@@ -90,25 +142,32 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         return ft.Colors.WHITE if sel else ft.Colors.GREY_300
 
     def _make_chip(option_id: str, label: str) -> ft.Container:
-        is_sel = option_id in _selected_ids
+        is_sel     = option_id in _selected_ids
+        icon_name  = _INTEREST_ICONS.get(option_id, ft.Icons.LABEL)
 
-        label_text = ft.Text(
+        # icon on the left, text fills remaining width on the right
+        icon_widget = ft.Icon(icon_name, size=14, color=_chip_color(is_sel))
+        label_text  = ft.Text(
             label,
             size=12,
             color=_chip_color(is_sel),
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
-            text_align=ft.TextAlign.CENTER,
             no_wrap=True,
+            expand=True,
         )
         btn = ft.Container(
             width=_CHIP_W,
             height=36,
-            alignment=ft.Alignment(0, 0),
             border_radius=6,
             bgcolor=_chip_bgcolor(is_sel),
             border=_chip_border(is_sel),
-            content=label_text,
+            padding=ft.Padding.symmetric(horizontal=8),
+            content=ft.Row(
+                [icon_widget, label_text],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         )
 
         def on_click(e):
@@ -119,9 +178,10 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
             else:
                 _selected_ids.add(option_id)
                 sel = True
-            btn.bgcolor      = _chip_bgcolor(sel)
-            btn.border       = _chip_border(sel)
-            label_text.color = _chip_color(sel)
+            btn.bgcolor        = _chip_bgcolor(sel)
+            btn.border         = _chip_border(sel)
+            icon_widget.color  = _chip_color(sel)
+            label_text.color   = _chip_color(sel)
             _update_save_btn()
             page.update()
 
