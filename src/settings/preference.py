@@ -44,11 +44,10 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
     )
 
     # ---- chip grid layout constants ----
-    # Window is fixed 1100 px; sidebar 250 + 1 divider; main padding 30×2 = ~789 px available.
-    # 5 chips × 148 px + 4 gaps × 8 px = 772 px  →  fits comfortably.
-    _CHIP_W        = 148
+    # Chips use expand=True + spacing=4 to mirror the settings tab bar exactly,
+    # so every chip column aligns with the tab buttons above it.
     _CHIPS_PER_ROW = 5
-    _CHIP_SPACING  = 8
+    _CHIP_SPACING  = 4
 
     # ---- helpers ----
 
@@ -141,7 +140,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
             expand=True,
         )
         btn = ft.Container(
-            width=_CHIP_W,
+            expand=True,
             height=36,
             border_radius=6,
             bgcolor=_chip_bgcolor(is_sel),
