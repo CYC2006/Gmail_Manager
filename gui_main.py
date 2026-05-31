@@ -1226,117 +1226,99 @@ def main(page: ft.Page):
         update_stats_display()
 
     # ====================
-    # Fetch Tasks
+    # Fetch Controller
     # ====================
 
-    async def background_fetch_task(token, gen_id, page_num=2):
-        # stop if we have already fetched the maximum allowed pages
-        if page_num > MAX_PAGES:
-            return
-        try:
-            gen = fetch_and_analyze_emails(svc["service"], page_token=token, page_offset=(page_num - 1) * PAGE_SIZE)
-            while True:
-                # abort if the user clicked refresh while this task was running
-                if fetch_gen != gen_id:
-                    return
-                email_data = await asyncio.to_thread(get_next, gen)
-                if email_data is None:
-                    break
-                # if there is another page, chain a new background task and exit this one
-                if "_next_page_token" in email_data:
-                    page.run_task(background_fetch_task, email_data["_next_page_token"], gen_id, page_num + 1)
-                    return
-                async with ui_lock:
-                    _insert_email_sorted(email_data)
+    def _build_fetch_controller():
+        async def background_fetch_task(token, gen_id, page_num=2):
+            # stop if we have already fetched the maximum allowed pages
+            if page_num > MAX_PAGES:
+                return
+            try:
+                gen = fetch_and_analyze_emails(svc["service"], page_token=token, page_offset=(page_num - 1) * PAGE_SIZE)
+                while True:
+                    # abort if the user clicked refresh while this task was running
+                    if fetch_gen != gen_id:
+                        return
+                    email_data = await asyncio.to_thread(get_next, gen)
+                    if email_data is None:
+                        break
+                    # if there is another page, chain a new background task and exit this one
+                    if "_next_page_token" in email_data:
+                        page.run_task(background_fetch_task, email_data["_next_page_token"], gen_id, page_num + 1)
+                        return
+                    async with ui_lock:
+                        _insert_email_sorted(email_data)
+                        append_email_to_view(email_data)
+                    page.update()
+                    await asyncio.sleep(0)
+
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                print(f"[ERROR] Background fetch failed: {ex}")
+
+        async def _fetch_simple_view_task(view_name: str, query: str,
+                                          email_store: list, shown_store: dict):
+            """Generic lightweight fetch for Sent / Trash views (metadata only, no AI).
+
+            Uses build_action_service() to get a FRESH httplib2.Http connection pool
+            so it never shares an SSL socket with the background All-Mail fetch task.
+            """
+            email_store.clear()
+            shown_store.clear()
+            email_list_view.controls.clear()
+            page.update()
+            try:
+                view_svc = await asyncio.to_thread(build_action_service)
+                gen = fetch_simple_emails(view_svc, query)
+                idx = 0
+                while True:
+                    email_data = await asyncio.to_thread(get_next, gen)
+                    if email_data is None:
+                        break
+                    if "_next_page_token" in email_data:
+                        break   # load first page only
+                    if current_view != view_name:
+                        return  # user navigated away
+                    email_data["_index"] = idx
+                    idx += 1
+                    email_store.append(email_data)
                     append_email_to_view(email_data)
-                page.update()
-                await asyncio.sleep(0)
+                    page.update()
+                    await asyncio.sleep(0)
+            except Exception as ex:
+                import traceback; traceback.print_exc()
+                print(f"[ERROR] {view_name} fetch failed: {ex}")
 
-        except Exception as ex:
-            import traceback
-            traceback.print_exc()
-            print(f"[ERROR] Background fetch failed: {ex}")
+        async def _fetch_sent_task():
+            await _fetch_simple_view_task("sent",  "in:sent",  sent_emails,  sent_shown_ids)
 
-    async def _fetch_simple_view_task(view_name: str, query: str,
-                                      email_store: list, shown_store: dict):
-        """Generic lightweight fetch for Sent / Trash views (metadata only, no AI).
+        async def _fetch_trash_task():
+            await _fetch_simple_view_task("trash", "in:trash", trash_emails, trash_shown_ids)
 
-        Uses build_action_service() to get a FRESH httplib2.Http connection pool
-        so it never shares an SSL socket with the background All-Mail fetch task.
-        """
-        email_store.clear()
-        shown_store.clear()
-        email_list_view.controls.clear()
-        page.update()
-        try:
-            view_svc = await asyncio.to_thread(build_action_service)
-            gen = fetch_simple_emails(view_svc, query)
-            idx = 0
-            while True:
-                email_data = await asyncio.to_thread(get_next, gen)
-                if email_data is None:
-                    break
-                if "_next_page_token" in email_data:
-                    break   # load first page only
-                if current_view != view_name:
-                    return  # user navigated away
-                email_data["_index"] = idx
-                idx += 1
-                email_store.append(email_data)
-                append_email_to_view(email_data)
-                page.update()
-                await asyncio.sleep(0)
-        except Exception as ex:
-            import traceback; traceback.print_exc()
-            print(f"[ERROR] {view_name} fetch failed: {ex}")
-
-    async def _fetch_sent_task():
-        await _fetch_simple_view_task("sent",  "in:sent",  sent_emails,  sent_shown_ids)
-
-    async def _fetch_trash_task():
-        await _fetch_simple_view_task("trash", "in:trash", trash_emails, trash_shown_ids)
-
-    async def fetch_task():
-        this_gen = fetch_gen
-        try:
-            # build Gmail service only on the first run; reuse afterwards
-            if not svc["service"]:
-                # show a notice while the browser OAuth window may be opening
-                email_list_view.controls.clear()
-                email_list_view.controls.append(
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.ProgressRing(width=32, height=32, stroke_width=3),
-                                ft.Text(
-                                    "Connecting to Google — a browser window may open.",
-                                    color=ft.Colors.BLUE_GREY_400,
-                                    text_align=ft.TextAlign.CENTER,
-                                    size=13,
-                                ),
-                            ],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            spacing=12,
-                        ),
-                        alignment=ft.Alignment(0, 0),
-                        expand=True,
-                        padding=ft.Padding.only(top=80),
-                    )
-                )
-                page.update()
-
-                svc["service"] = await asyncio.to_thread(get_gmail_service)
-
+        async def fetch_task():
+            this_gen = fetch_gen
+            try:
+                # build Gmail service only on the first run; reuse afterwards
                 if not svc["service"]:
+                    # show a notice while the browser OAuth window may be opening
                     email_list_view.controls.clear()
                     email_list_view.controls.append(
                         ft.Container(
-                            content=ft.Text(
-                                "Failed to connect to Gmail.",
-                                color=ft.Colors.RED_400,
-                                text_align=ft.TextAlign.CENTER,
-                                size=13,
+                            content=ft.Column(
+                                [
+                                    ft.ProgressRing(width=32, height=32, stroke_width=3),
+                                    ft.Text(
+                                        "Connecting to Google — a browser window may open.",
+                                        color=ft.Colors.BLUE_GREY_400,
+                                        text_align=ft.TextAlign.CENTER,
+                                        size=13,
+                                    ),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=12,
                             ),
                             alignment=ft.Alignment(0, 0),
                             expand=True,
@@ -1344,70 +1326,108 @@ def main(page: ft.Page):
                         )
                     )
                     page.update()
+
+                    svc["service"] = await asyncio.to_thread(get_gmail_service)
+
+                    if not svc["service"]:
+                        email_list_view.controls.clear()
+                        email_list_view.controls.append(
+                            ft.Container(
+                                content=ft.Text(
+                                    "Failed to connect to Gmail.",
+                                    color=ft.Colors.RED_400,
+                                    text_align=ft.TextAlign.CENTER,
+                                    size=13,
+                                ),
+                                alignment=ft.Alignment(0, 0),
+                                expand=True,
+                                padding=ft.Padding.only(top=80),
+                            )
+                        )
+                        page.update()
+                        return
+
+                    # fetch the authenticated user's email address for the sidebar
+                    try:
+                        profile = await asyncio.to_thread(svc["service"].users().getProfile(userId='me').execute)
+                        user_email_text.value = profile.get('emailAddress', 'Unknown Email')
+                    except Exception as e:
+                        print(f"[ERROR] Failed to fetch user profile: {e}")
+                        user_email_text.value = "Offline Mode"
+
+                # guard: another refresh may have fired while we were initializing the service
+                if fetch_gen != this_gen:
                     return
 
-                # fetch the authenticated user's email address for the sidebar
-                try:
-                    profile = await asyncio.to_thread(svc["service"].users().getProfile(userId='me').execute)
-                    user_email_text.value = profile.get('emailAddress', 'Unknown Email')
-                except Exception as e:
-                    print(f"[ERROR] Failed to fetch user profile: {e}")
-                    user_email_text.value = "Offline Mode"
+                # update the stats badges — inbox-scoped first, then all-mail
+                stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
+                if fetch_gen != this_gen:
+                    return
+                live_stats["inbox"]   = stats["inbox"]
+                live_stats["unread"]  = stats["unread"]
+                live_stats["starred"] = stats["starred"]
 
-            # guard: another refresh may have fired while we were initializing the service
-            if fetch_gen != this_gen:
-                return
+                am_stats = await asyncio.to_thread(get_all_mail_stats, svc["service"])
+                if fetch_gen != this_gen:
+                    return
+                all_mail_stats["total"]   = am_stats["total"]
+                all_mail_stats["unread"]  = am_stats["unread"]
+                all_mail_stats["starred"] = am_stats["starred"]
 
-            # update the stats badges — inbox-scoped first, then all-mail
-            stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
-            if fetch_gen != this_gen:
-                return
-            live_stats["inbox"]   = stats["inbox"]
-            live_stats["unread"]  = stats["unread"]
-            live_stats["starred"] = stats["starred"]
+                update_stats_display()
 
-            am_stats = await asyncio.to_thread(get_all_mail_stats, svc["service"])
-            if fetch_gen != this_gen:
-                return
-            all_mail_stats["total"]   = am_stats["total"]
-            all_mail_stats["unread"]  = am_stats["unread"]
-            all_mail_stats["starred"] = am_stats["starred"]
+                # state was already cleared by on_refresh_click; clear again as a safety
+                # net for the initial startup call where on_refresh_click runs synchronously
+                all_emails.clear()
+                shown_email_ids.clear()
+                email_list_view.controls.clear()
+                page.update()
 
-            update_stats_display()
+                # stream page 1 — each yielded email is inserted and rendered immediately
+                gen = fetch_and_analyze_emails(svc["service"])
+                while True:
+                    # guard: abort immediately if the user clicked refresh again
+                    if fetch_gen != this_gen:
+                        return
+                    email_data = await asyncio.to_thread(get_next, gen)
+                    if email_data is None:
+                        break
+                    # re-check after the blocking call — refresh may have fired during get_next
+                    if fetch_gen != this_gen:
+                        return
+                    # page 1 done — hand off remaining pages to a background task
+                    if "_next_page_token" in email_data:
+                        page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
+                        return
+                    async with ui_lock:
+                        _insert_email_sorted(email_data)
+                        append_email_to_view(email_data)
+                    page.update()
+                    await asyncio.sleep(0)
 
-            # state was already cleared by on_refresh_click; clear again as a safety
-            # net for the initial startup call where on_refresh_click runs synchronously
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                print(f"[ERROR] Fetch failed: {ex}")
+
+        def on_refresh_click(e):
+            nonlocal fetch_gen
+            # increment gen id — background tasks compare against this and self-cancel
+            fetch_gen += 1
+            # clear all state immediately so the UI is blank the instant the button is clicked
             all_emails.clear()
             shown_email_ids.clear()
+            sent_emails.clear()
+            sent_shown_ids.clear()
+            trash_emails.clear()
+            trash_shown_ids.clear()
             email_list_view.controls.clear()
             page.update()
+            page.run_task(fetch_task)
 
-            # stream page 1 — each yielded email is inserted and rendered immediately
-            gen = fetch_and_analyze_emails(svc["service"])
-            while True:
-                # guard: abort immediately if the user clicked refresh again
-                if fetch_gen != this_gen:
-                    return
-                email_data = await asyncio.to_thread(get_next, gen)
-                if email_data is None:
-                    break
-                # re-check after the blocking call — refresh may have fired during get_next
-                if fetch_gen != this_gen:
-                    return
-                # page 1 done — hand off remaining pages to a background task
-                if "_next_page_token" in email_data:
-                    page.run_task(background_fetch_task, email_data["_next_page_token"], this_gen, 2)
-                    return
-                async with ui_lock:
-                    _insert_email_sorted(email_data)
-                    append_email_to_view(email_data)
-                page.update()
-                await asyncio.sleep(0)
+        return on_refresh_click, _fetch_sent_task, _fetch_trash_task
 
-        except Exception as ex:
-            import traceback
-            traceback.print_exc()
-            print(f"[ERROR] Fetch failed: {ex}")
+    on_refresh_click, _fetch_sent_task, _fetch_trash_task = _build_fetch_controller()
 
     # ====================
     # Settings Controller
@@ -1501,21 +1521,6 @@ def main(page: ft.Page):
 
     settings_panel, _api_tab, _pref_tab = _build_settings_controller()
     page.on_close = lambda e: _api_tab.save_verified_on_close()
-
-    def on_refresh_click(e):
-        nonlocal fetch_gen
-        # increment gen id — background tasks compare against this and self-cancel
-        fetch_gen += 1
-        # clear all state immediately so the UI is blank the instant the button is clicked
-        all_emails.clear()
-        shown_email_ids.clear()
-        sent_emails.clear()
-        sent_shown_ids.clear()
-        trash_emails.clear()
-        trash_shown_ids.clear()
-        email_list_view.controls.clear()
-        page.update()
-        page.run_task(fetch_task)
 
     # ====================
     # Sidebar
