@@ -1120,139 +1120,156 @@ def main(page: ft.Page):
 
 
     # ====================
-    # View Management
+    # View Manager
     # ====================
 
-    # ── per-view helpers ──────────────────────────────────────────────────────
+    def _build_view_manager():
+        # ====================
+        # View Management
+        # ====================
 
-    def _active_lists():
-        """Return (email_list, shown_ids_dict) for the current view."""
-        if current_view in ("inbox", "all_mail", "moodle"):
+        # ── per-view helpers ──────────────────────────────────────────────────────
+
+        def _active_lists():
+            """Return (email_list, shown_ids_dict) for the current view."""
+            if current_view in ("inbox", "all_mail", "moodle"):
+                return all_emails, shown_email_ids
+            if current_view == "sent":
+                return sent_emails, sent_shown_ids
+            if current_view == "trash":
+                return trash_emails, trash_shown_ids
             return all_emails, shown_email_ids
-        if current_view == "sent":
-            return sent_emails, sent_shown_ids
-        if current_view == "trash":
-            return trash_emails, trash_shown_ids
-        return all_emails, shown_email_ids
 
-    def _card_mode() -> str:
-        if current_view == "trash":
-            return "trash"
-        if current_view == "sent":
-            return "sent"
-        return "default"
+        def _card_mode() -> str:
+            if current_view == "trash":
+                return "trash"
+            if current_view == "sent":
+                return "sent"
+            return "default"
 
-    # returns True if this email should be visible in the currently active view
-    def _matches_view(data) -> bool:
-        if current_view == "moodle":
-            return is_moodle(data)
-        if current_view == "inbox":
-            return data.get("is_in_inbox", True)
-        return True  # all_mail / sent / trash show every email in their list
+        # returns True if this email should be visible in the currently active view
+        def _matches_view(data) -> bool:
+            if current_view == "moodle":
+                return is_moodle(data)
+            if current_view == "inbox":
+                return data.get("is_in_inbox", True)
+            return True  # all_mail / sent / trash show every email in their list
 
-    def render_current_view():
-        """Rebuild the visible card list from scratch for the current view."""
-        active_emails, active_shown = _active_lists()
-        mode = _card_mode()
-        email_list_view.controls.clear()
-        active_shown.clear()
-        for data in active_emails:
-            if len(active_shown) >= PAGE_SIZE:
-                break
-            if not _matches_view(data):
-                continue
-            email_list_view.controls.append(create_email_card(data, card_mode=mode))
-            active_shown[data['id']] = data.get('_index', float('inf'))
-        update_stats_display()
-
-    def fill_next_email():
-        """When a card is removed, pull the next buffered email into view."""
-        active_emails, active_shown = _active_lists()
-        mode = _card_mode()
-        for data in active_emails:
-            if data['id'] in active_shown:
-                continue
-            if not _matches_view(data):
-                continue
-            email_list_view.controls.append(create_email_card(data, card_mode=mode))
-            active_shown[data['id']] = data.get('_index', float('inf'))
-            return
-
-    def switch_view(view: str):
-        nonlocal current_view
-        current_view = view
-
-        # highlight the selected sidebar tile
-        for tile, name in sidebar_tiles:
-            tile.selected = (name == view)
-
-        # replace the ft.Icon object inside the wrapper (mutation of .name is unreliable in Flet)
-        _icon_map = {
-            "inbox":    (ft.Icons.INBOX,          "Inbox"),
-            "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
-            "all_mail": (ft.Icons.ALL_INBOX,      "All Mail"),
-            "sent":     (ft.Icons.SEND,           "Sent"),
-            "trash":    (ft.Icons.DELETE,         "Trash"),
-            "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
-            "settings": (ft.Icons.SETTINGS,       "Settings"),
-        }
-        icon_name, title_text = _icon_map.get(view, (ft.Icons.INBOX, view.capitalize()))
-        header_icon_wrapper.content = ft.Icon(icon_name, size=28, color=ft.Colors.WHITE)
-        header_title.value = title_text
-
-        # show only the relevant panel
-        inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "sent", "trash")
-        calendar_panel.visible    = view == "calendar"
-
-        settings_panel.visible    = view == "settings"
-        # hide refresh button for settings, sent, and trash (sent/trash re-fetch on each visit)
-        header_refresh_btn.visible = view not in ("settings", "sent", "trash")
-
-        if view in ("inbox", "moodle", "all_mail"):
-            render_current_view()
+        def render_current_view():
+            """Rebuild the visible card list from scratch for the current view."""
+            active_emails, active_shown = _active_lists()
+            mode = _card_mode()
+            email_list_view.controls.clear()
+            active_shown.clear()
+            for data in active_emails:
+                if len(active_shown) >= PAGE_SIZE:
+                    break
+                if not _matches_view(data):
+                    continue
+                email_list_view.controls.append(create_email_card(data, card_mode=mode))
+                active_shown[data['id']] = data.get('_index', float('inf'))
             update_stats_display()
-        elif view == "sent":
-            page.run_task(_fetch_sent_task)
-        elif view == "trash":
-            page.run_task(_fetch_trash_task)
-        elif view == "calendar":
-            _refresh_calendar()
-        elif view == "settings":
-            page.run_task(_api_tab.auto_verify)
 
-    # ====================
-    # Email List Helpers
-    # ====================
+        def fill_next_email():
+            """When a card is removed, pull the next buffered email into view."""
+            active_emails, active_shown = _active_lists()
+            mode = _card_mode()
+            for data in active_emails:
+                if data['id'] in active_shown:
+                    continue
+                if not _matches_view(data):
+                    continue
+                email_list_view.controls.append(create_email_card(data, card_mode=mode))
+                active_shown[data['id']] = data.get('_index', float('inf'))
+                return
 
-    # safe wrapper around next() — returns None when the generator is exhausted
-    def get_next(gen):
-        try:
-            return next(gen)
-        except StopIteration:
-            return None
+        def switch_view(view: str):
+            nonlocal current_view
+            current_view = view
 
-    def _insert_email_sorted(email_data):
-        # keep all_emails ordered by _index (original inbox position)
-        new_idx = email_data.get('_index', float('inf'))
-        keys = [e.get('_index', float('inf')) for e in all_emails]
-        pos = bisect.bisect_left(keys, new_idx)
-        all_emails.insert(pos, email_data)
+            # highlight the selected sidebar tile
+            for tile, name in sidebar_tiles:
+                tile.selected = (name == view)
 
-    def append_email_to_view(email_data):
-        """Insert one email card into the current view, respecting PAGE_SIZE."""
-        active_emails, active_shown = _active_lists()
-        mode = _card_mode()
-        if len(active_shown) >= PAGE_SIZE:
-            return
-        if email_data['id'] in active_shown:
-            return
-        if not _matches_view(email_data):
-            return
-        new_idx  = email_data.get('_index', float('inf'))
-        position = sum(1 for idx in active_shown.values() if idx < new_idx)
-        email_list_view.controls.insert(position, create_email_card(email_data, card_mode=mode))
-        active_shown[email_data['id']] = new_idx
-        update_stats_display()
+            # replace the ft.Icon object inside the wrapper (mutation of .name is unreliable in Flet)
+            _icon_map = {
+                "inbox":    (ft.Icons.INBOX,          "Inbox"),
+                "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
+                "all_mail": (ft.Icons.ALL_INBOX,      "All Mail"),
+                "sent":     (ft.Icons.SEND,           "Sent"),
+                "trash":    (ft.Icons.DELETE,         "Trash"),
+                "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
+                "settings": (ft.Icons.SETTINGS,       "Settings"),
+            }
+            icon_name, title_text = _icon_map.get(view, (ft.Icons.INBOX, view.capitalize()))
+            header_icon_wrapper.content = ft.Icon(icon_name, size=28, color=ft.Colors.WHITE)
+            header_title.value = title_text
+
+            # show only the relevant panel
+            inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "sent", "trash")
+            calendar_panel.visible    = view == "calendar"
+
+            settings_panel.visible    = view == "settings"
+            # hide refresh button for settings, sent, and trash (sent/trash re-fetch on each visit)
+            header_refresh_btn.visible = view not in ("settings", "sent", "trash")
+
+            if view in ("inbox", "moodle", "all_mail"):
+                render_current_view()
+                update_stats_display()
+            elif view == "sent":
+                page.run_task(_fetch_sent_task)
+            elif view == "trash":
+                page.run_task(_fetch_trash_task)
+            elif view == "calendar":
+                _refresh_calendar()
+            elif view == "settings":
+                page.run_task(_api_tab.auto_verify)
+
+        # ====================
+        # Email List Helpers
+        # ====================
+
+        # safe wrapper around next() — returns None when the generator is exhausted
+        def get_next(gen):
+            try:
+                return next(gen)
+            except StopIteration:
+                return None
+
+        def _insert_email_sorted(email_data):
+            # keep all_emails ordered by _index (original inbox position)
+            new_idx = email_data.get('_index', float('inf'))
+            keys = [e.get('_index', float('inf')) for e in all_emails]
+            pos = bisect.bisect_left(keys, new_idx)
+            all_emails.insert(pos, email_data)
+
+        def append_email_to_view(email_data):
+            """Insert one email card into the current view, respecting PAGE_SIZE."""
+            active_emails, active_shown = _active_lists()
+            mode = _card_mode()
+            if len(active_shown) >= PAGE_SIZE:
+                return
+            if email_data['id'] in active_shown:
+                return
+            if not _matches_view(email_data):
+                return
+            new_idx  = email_data.get('_index', float('inf'))
+            position = sum(1 for idx in active_shown.values() if idx < new_idx)
+            email_list_view.controls.insert(position, create_email_card(email_data, card_mode=mode))
+            active_shown[email_data['id']] = new_idx
+            update_stats_display()
+
+
+        return (
+            render_current_view, fill_next_email, switch_view,
+            append_email_to_view, _insert_email_sorted, get_next,
+        )
+
+    (
+        render_current_view, fill_next_email, switch_view,
+        append_email_to_view, _insert_email_sorted, get_next,
+    ) = _build_view_manager()
+    fill_next_fn[0] = fill_next_email   # resolve forward reference
 
     # ====================
     # Fetch Controller
