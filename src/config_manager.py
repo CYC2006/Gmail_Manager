@@ -77,6 +77,10 @@ def save_user_prefs(data: dict):
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"[CONFIG] Failed to save user_preferences: {e}")
+        return
+    # invalidate label cache so the next match_preferences call re-reads fresh data
+    from src.preference_matcher import invalidate_label_cache
+    invalidate_label_cache()
 
 
 def get_selected_major() -> str:

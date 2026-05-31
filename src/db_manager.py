@@ -42,6 +42,7 @@ def init_db():
 # check if the current mail has been analyzed
 def get_cached_result(email_id):
     with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM analyzed_emails WHERE email_id = ?', (email_id,))
         row = cursor.fetchone()
@@ -49,8 +50,7 @@ def get_cached_result(email_id):
     if row:
         # refresh last_seen — this email is still present in inbox
         _touch_last_seen(email_id)
-        # matched_prefs is column 9; None means it was never computed (old cache entry)
-        matched_raw = row[9] if len(row) > 9 else None
+        matched_raw = row["matched_prefs"] if "matched_prefs" in row.keys() else None
         if matched_raw is not None:
             try:
                 matched = json.loads(matched_raw)
@@ -59,14 +59,14 @@ def get_cached_result(email_id):
         else:
             matched = None  # never been matched — old cache entry
         return {
-            "email_id":       row[0],
-            "sender":         row[1],
-            "time":           row[2],
-            "category":       row[3],
-            "summary":        row[4],
-            "event_time":     row[5],
-            "action_required":row[6],
-            "matched_prefs":  matched,
+            "email_id":        row["email_id"],
+            "sender":          row["sender"],
+            "time":            row["receive_time"],
+            "category":        row["category"],
+            "summary":         row["summary"],
+            "event_time":      row["event_time"],
+            "action_required": row["action_required"],
+            "matched_prefs":   matched,
         }
     return None
 
@@ -109,12 +109,13 @@ def cleanup_old_entries(days=30):
 # get the cached detail analysis JSON for an email (returns dict or None)
 def get_detail_analysis(email_id):
     with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute('SELECT detail_analysis FROM analyzed_emails WHERE email_id = ?', (email_id,))
         row = cursor.fetchone()
-    if row and row[0]:
+    if row and row["detail_analysis"]:
         try:
-            return json.loads(row[0])
+            return json.loads(row["detail_analysis"])
         except Exception:
             return None
     return None

@@ -12,6 +12,7 @@ import src.ai_agent as _ai_agent
 from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs
 from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
+from src.categories import CAL_WORTHY, OTHER
 
 # Upgraded scope for modifying email states (read, archive, trash, star)
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -203,7 +204,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                 tpd_logged = True
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
-                "category": "其他郵件", "subject": subject,
+                "category": OTHER, "subject": subject,
                 "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
                 "matched_prefs": [],
             }
@@ -213,7 +214,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             msg_full   = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             email_body = get_email_body(msg_full.get("payload", {}))
 
-            category      = "其他郵件"
+            category      = OTHER
             matched_prefs = []
             if len(email_body) > 20:
                 print(f"[AI] Categorizing: {subject[:30]}...")
@@ -229,10 +230,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                     matched_prefs = match_preferences(subject, email_body, category)
                     save_matched_prefs(email_id, matched_prefs)
 
-                    # auto-extract event times only for categories with a meaningful date
-                    # 作業公布/作業解答/成績公布/繳交確認/考試相關 are informational — no calendar event needed
-                    _CAL_WORTHY = {"作業死線", "停課通知", "考試時間"}
-                    if is_moodle and category in _CAL_WORTHY:
+                    if is_moodle and category in CAL_WORTHY:
                         print(f"[CAL] Extracting events from Moodle mail: {subject[:30]}...")
                         events = extract_moodle_events(email_body)
                         added = 0

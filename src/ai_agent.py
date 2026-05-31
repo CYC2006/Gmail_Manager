@@ -78,6 +78,20 @@ def _try_switch_key() -> bool:
 
 
 # Prompts — loaded from txt files in src/prompts/
+def _extract_json(text: str) -> dict | None:
+    """Extract the first complete JSON object from an arbitrary string.
+    Uses json.JSONDecoder.raw_decode() which finds the exact closing brace,
+    avoiding the greedy-regex pitfall of matching too much or too little."""
+    start = text.find('{')
+    if start == -1:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        return obj if isinstance(obj, dict) else None
+    except JSONDecodeError:
+        return None
+
+
 def _load_prompt(filename):
     path = os.path.join(PROMPTS_DIR, filename)
     with open(path, "r", encoding="utf-8") as f:
@@ -193,15 +207,11 @@ def extract_moodle_events(email_body):
     )
     if raw is None:
         return []
-    match = _re.search(r'\{.*\}', raw, _re.DOTALL)
-    if not match:
+    obj = _extract_json(raw)
+    if obj is None:
         print("[DEBUG] Moodle event extract: no JSON found in response")
         return []
-    try:
-        return json.loads(match.group()).get("event_times", [])
-    except Exception as e:
-        print(f"[DEBUG] Moodle event extract JSON parse failed: {e}")
-        return []
+    return obj.get("event_times", [])
 
 
 def analyze_email_detail(email_body):
@@ -216,16 +226,10 @@ def analyze_email_detail(email_body):
     )
     if raw is None:
         return None
-    match = _re.search(r'\{.*\}', raw, _re.DOTALL)
-    if not match:
-        print(f"[DEBUG] Detail analysis: no JSON object found in response")
-        return None
-    try:
-        return json.loads(match.group())
-    except json.JSONDecodeError as e:
-        print(f"[DEBUG] Detail analysis: malformed JSON — {e}")
-        print(f"[DEBUG] Offending JSON (first 400 chars): {match.group()[:400]}")
-        return None
+    obj = _extract_json(raw)
+    if obj is None:
+        print(f"[DEBUG] Detail analysis: no JSON object found in response (first 400 chars): {raw[:400]}")
+    return obj
 
 
 def verify_api_key(key: str) -> str:

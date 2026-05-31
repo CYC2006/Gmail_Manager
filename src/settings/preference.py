@@ -26,8 +26,12 @@ _OPTIONS_FILE = os.path.join(os.path.dirname(__file__), "preference_options.json
 
 
 def _load_options() -> dict:
-    with open(_OPTIONS_FILE, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(_OPTIONS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[PREF] Failed to load preference options: {e}")
+        return {}
 
 
 def build_preference_tab(page: ft.Page) -> SimpleNamespace:

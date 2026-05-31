@@ -20,6 +20,10 @@ from src.calendar_db import init_calendar_db, add_event, event_exists, delete_ev
 from src.calendar_view import build_calendar_months, CUSTOM_EVENT_COLORS
 from src.settings.api_keys import build_api_keys_tab
 from src.settings.preference import build_preference_tab
+from src.categories import (
+    DEADLINE, HW_RELEASE, HW_CONFIRM, GRADE, CANCEL, EXAM_RELATED,
+    IMPORTANT, LECTURE, ANNOUNCE, ADS, EXTERNAL, OTHER,
+)
 
 def main(page: ft.Page):
 
@@ -730,17 +734,17 @@ def main(page: ft.Page):
     # maps AI category labels to badge background colors
     def get_tag_color(category: str):
         color_map = {
-            "作業死線": ft.Colors.ORANGE_700,
-            "作業公布": ft.Colors.BLUE_GREY_600,
-            "繳交確認": ft.Colors.GREEN_700,
-            "成績公布": ft.Colors.BLUE_700,
-            "停課通知": ft.Colors.PURPLE_700,
-            "考試相關": ft.Colors.RED_700,
-            "重要公告": ft.Colors.RED_700,
-            "講座活動": ft.Colors.TEAL_700,
-            "一般宣導": ft.Colors.BLUE_400,
-            "其他廣告": ft.Colors.BROWN_500,
-            "外部學習": ft.Colors.INDIGO_500,
+            DEADLINE:     ft.Colors.ORANGE_700,
+            HW_RELEASE:   ft.Colors.BLUE_GREY_600,
+            HW_CONFIRM:   ft.Colors.GREEN_700,
+            GRADE:        ft.Colors.BLUE_700,
+            CANCEL:       ft.Colors.PURPLE_700,
+            EXAM_RELATED: ft.Colors.RED_700,
+            IMPORTANT:    ft.Colors.RED_700,
+            LECTURE:      ft.Colors.TEAL_700,
+            ANNOUNCE:     ft.Colors.BLUE_400,
+            ADS:          ft.Colors.BROWN_500,
+            EXTERNAL:     ft.Colors.INDIGO_500,
             "Analysis Failed": ft.Colors.RED_900,
         }
         for key, color in color_map.items():
