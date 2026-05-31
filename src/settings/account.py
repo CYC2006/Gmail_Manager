@@ -110,12 +110,13 @@ def build_account_tab(page: ft.Page) -> SimpleNamespace:
     def _make_gender_chip(label: str, value: str) -> ft.Container:
         sel  = (_cur["gender"] == value)
         chip = ft.Container(
+            expand=True,   # equal width; 3 chips fill the input half evenly
             height=36,
             border_radius=6,
             bgcolor=_chip_bg(sel),
             border=_chip_border(sel),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=6),
-            content=ft.Text(label, size=13, color=_chip_color(sel)),
+            alignment=ft.alignment.center,
+            content=ft.Text(label, size=13, color=_chip_color(sel), text_align=ft.TextAlign.CENTER),
         )
 
         def _on_click(e, v=value):
@@ -197,8 +198,9 @@ def build_account_tab(page: ft.Page) -> SimpleNamespace:
         )
 
     def _field_row(label_text: str, widget: ft.Control) -> ft.Row:
+        # label (fixed) | widget (expand=1, ~half width) | spacer (expand=1)
         return ft.Row(
-            [_label(label_text), widget],
+            [_label(label_text), ft.Container(content=widget, expand=1), ft.Container(expand=1)],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
