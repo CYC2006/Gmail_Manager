@@ -1,12 +1,6 @@
 """
 preference.py
-Builds the Preference settings tab.
-
-Usage:
-    from src.settings.preference import build_preference_tab
-
-    _pref_tab = build_preference_tab(page)
-    tab_content = _pref_tab.content
+Builds the Preference settings tab — Interests & Hobbies only.
 """
 
 import json
@@ -15,12 +9,7 @@ from types import SimpleNamespace
 
 import flet as ft
 
-from src.config_manager import (
-    get_selected_major,
-    save_selected_major,
-    get_selected_interests,
-    save_selected_interests,
-)
+from src.config_manager import get_selected_interests, save_selected_interests
 
 _OPTIONS_FILE = os.path.join(os.path.dirname(__file__), "preference_options.json")
 
@@ -38,10 +27,8 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
     options = _load_options()
 
     # ---- state ----
-    _selected_major:   list[str] = [get_selected_major()]      # single id
-    _selected_ids:     set[str]  = set(get_selected_interests())
-    _saved_major:      list[str] = [_selected_major[0]]
-    _saved_interests:  list[set] = [set(_selected_ids)]
+    _selected_ids:    set[str] = set(get_selected_interests())
+    _saved_interests: list[set] = [set(_selected_ids)]
 
     # ---- save button (declared early so helpers can reference it) ----
     _save_btn = ft.ElevatedButton(
@@ -66,9 +53,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
     # ---- helpers ----
 
     def _update_save_btn():
-        major_changed    = _selected_major[0] != _saved_major[0]
-        interest_changed = _selected_ids      != _saved_interests[0]
-        changed = major_changed or interest_changed
+        changed = _selected_ids != _saved_interests[0]
         _save_btn.disabled = not changed
         _save_btn.style = ft.ButtonStyle(
             bgcolor={"": ft.Colors.BLUE_700 if changed else ft.Colors.GREY_800},
@@ -142,10 +127,9 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         return ft.Colors.WHITE if sel else ft.Colors.GREY_300
 
     def _make_chip(option_id: str, label: str) -> ft.Container:
-        is_sel     = option_id in _selected_ids
-        icon_name  = _INTEREST_ICONS.get(option_id, ft.Icons.LABEL)
+        is_sel    = option_id in _selected_ids
+        icon_name = _INTEREST_ICONS.get(option_id, ft.Icons.LABEL)
 
-        # icon on the left, text fills remaining width on the right
         icon_widget = ft.Icon(icon_name, size=14, color=_chip_color(is_sel))
         label_text  = ft.Text(
             label,
@@ -178,44 +162,20 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
             else:
                 _selected_ids.add(option_id)
                 sel = True
-            btn.bgcolor        = _chip_bgcolor(sel)
-            btn.border         = _chip_border(sel)
-            icon_widget.color  = _chip_color(sel)
-            label_text.color   = _chip_color(sel)
+            btn.bgcolor       = _chip_bgcolor(sel)
+            btn.border        = _chip_border(sel)
+            icon_widget.color = _chip_color(sel)
+            label_text.color  = _chip_color(sel)
             _update_save_btn()
             page.update()
 
         btn.on_click = on_click
         return btn
 
-    # ---- major dropdown ----
-    _major_dropdown = ft.Dropdown(
-        value=_selected_major[0] or None,
-        hint_text="Select your Major...",
-        options=[
-            ft.dropdown.Option(
-                key=d["id"],
-                text=f"{d['label']} ({d['abbr']})",
-            )
-            for d in options["major"]
-        ],
-        bgcolor="#2a2a2a",
-        border_color=ft.Colors.GREY_700,
-        focused_border_color=ft.Colors.BLUE_400,
-        color=ft.Colors.WHITE,
-        menu_height=320,
-    )
-
-    def _on_major_select(e):
-        _selected_major[0] = e.control.value or ""
-        _update_save_btn()
-
-    _major_dropdown.on_select = _on_major_select
-
     # ---- interest chips — uniform grid ----
     interest_chips = [
         _make_chip(item["id"], item["label"])
-        for item in options["interest"]
+        for item in options.get("interest", [])
     ]
 
     # Group chips into rows of exactly _CHIPS_PER_ROW (last row may be shorter)
@@ -252,9 +212,7 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
 
     # ---- save handler ----
     def _on_save(e):
-        save_selected_major(_selected_major[0])
         save_selected_interests(list(_selected_ids))
-        _saved_major[0]     = _selected_major[0]
         _saved_interests[0] = set(_selected_ids)
         _update_save_btn()
         page.snack_bar = ft.SnackBar(
@@ -272,11 +230,6 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         padding=ft.Padding.only(top=16),
         content=ft.Column(
             [
-                ft.Text("Major", size=18, weight=ft.FontWeight.BOLD,
-                        color=ft.Colors.GREY_200),
-                ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                _major_dropdown,
-                ft.Container(height=12),
                 interest_header_row,
                 ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
                 interest_grid,

@@ -20,6 +20,7 @@ from src.calendar_db import init_calendar_db, add_event, event_exists, delete_ev
 from src.calendar_view import build_calendar_months, CUSTOM_EVENT_COLORS
 from src.settings.api_keys import build_api_keys_tab
 from src.settings.preference import build_preference_tab
+from src.settings.account import build_account_tab
 from src.categories import (
     DEADLINE, HW_RELEASE, HW_CONFIRM, GRADE, CANCEL, EXAM_RELATED,
     IMPORTANT, LECTURE, ANNOUNCE, ADS, EXTERNAL, OTHER,
@@ -1169,8 +1170,9 @@ def main(page: ft.Page):
             traceback.print_exc()
             print(f"[ERROR] Fetch failed: {ex}")
 
-    _api_tab  = build_api_keys_tab(page)
-    _pref_tab = build_preference_tab(page)
+    _api_tab     = build_api_keys_tab(page)
+    _pref_tab    = build_preference_tab(page)
+    _account_tab = build_account_tab(page)
     page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
@@ -1680,6 +1682,7 @@ def main(page: ft.Page):
 
     _tab_content_map = {
         "preference": lambda: _pref_tab.content,
+        "account":    lambda: _account_tab.content,
         "api_keys":   lambda: _api_tab.content,
     }
     def _settings_tab_btn(label, key, icon):
