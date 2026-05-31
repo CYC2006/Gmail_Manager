@@ -64,12 +64,10 @@ def main(page: ft.Page):
     all_emails      = []
     shown_email_ids = {}   # email_id → _index for currently rendered cards
 
-    # ── Sent / Trash lightweight lists ───────────────────────────────────────
-    sent_emails      = []
+    # ── Trash lightweight list ───────────────────────────────────────────────
     trash_emails     = []
-    sent_shown_ids   = {}
     trash_shown_ids  = {}
-    view_loaded      = {"sent": False, "trash": False}
+    view_loaded      = {"trash": False}
 
     current_view = "inbox"
 
@@ -138,8 +136,8 @@ def main(page: ft.Page):
         starred_text = stats_row.controls[2].content.controls[1]
 
         def update_stats_display():
-            # hide stats bar entirely for Sent and Trash views
-            if current_view in ("sent", "trash"):
+            # hide stats bar entirely for Trash view
+            if current_view == "trash":
                 stats_container.visible = False
                 page.update()
                 return
@@ -510,10 +508,6 @@ def main(page: ft.Page):
                 modal_trash_btn.visible   = True
                 modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
                 modal_trash_btn.tooltip   = "Permanent delete"
-            elif current_view == "sent":
-                modal_star_btn.visible    = False
-                modal_archive_btn.visible = False
-                modal_trash_btn.visible   = False
             else:
                 modal_star_btn.visible    = True
                 modal_archive_btn.visible = True
@@ -1044,10 +1038,6 @@ def main(page: ft.Page):
                                                 on_click=lambda e: page.run_task(on_permanent_delete, e, card_ref[0]),
                                             ),
                                         ] if card_mode == "trash" else
-                                        # ── Sent view: read-only, time only ──
-                                        [
-                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                        ] if card_mode == "sent" else
                                         # ── Default (Inbox / All Mail / Moodle) ──
                                         [
                                             ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
@@ -1134,10 +1124,6 @@ def main(page: ft.Page):
 
         def _active_lists():
             """Return (email_list, shown_ids_dict) for the current view."""
-            if current_view in ("inbox", "all_mail", "moodle"):
-                return all_emails, shown_email_ids
-            if current_view == "sent":
-                return sent_emails, sent_shown_ids
             if current_view == "trash":
                 return trash_emails, trash_shown_ids
             return all_emails, shown_email_ids
@@ -1145,8 +1131,6 @@ def main(page: ft.Page):
         def _card_mode() -> str:
             if current_view == "trash":
                 return "trash"
-            if current_view == "sent":
-                return "sent"
             return "default"
 
         # returns True if this email should be visible in the currently active view
@@ -1198,7 +1182,6 @@ def main(page: ft.Page):
                 "inbox":    (ft.Icons.INBOX,          "Inbox"),
                 "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
                 "all_mail": (ft.Icons.ALL_INBOX,      "All Mail"),
-                "sent":     (ft.Icons.SEND,           "Sent"),
                 "trash":    (ft.Icons.DELETE,         "Trash"),
                 "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
                 "settings": (ft.Icons.SETTINGS,       "Settings"),
@@ -1208,18 +1191,16 @@ def main(page: ft.Page):
             header_title.value = title_text
 
             # show only the relevant panel
-            inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "sent", "trash")
+            inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "trash")
             calendar_panel.visible    = view == "calendar"
 
             settings_panel.visible    = view == "settings"
-            # hide refresh button for settings, sent, and trash (sent/trash re-fetch on each visit)
-            header_refresh_btn.visible = view not in ("settings", "sent", "trash")
+            # hide refresh button for settings and trash (trash re-fetches on each visit)
+            header_refresh_btn.visible = view not in ("settings", "trash")
 
             if view in ("inbox", "moodle", "all_mail"):
                 render_current_view()
                 update_stats_display()
-            elif view == "sent":
-                page.run_task(_fetch_sent_task)
             elif view == "trash":
                 page.run_task(_fetch_trash_task)
             elif view == "calendar":
@@ -1338,9 +1319,6 @@ def main(page: ft.Page):
             except Exception as ex:
                 import traceback; traceback.print_exc()
                 print(f"[ERROR] {view_name} fetch failed: {ex}")
-
-        async def _fetch_sent_task():
-            await _fetch_simple_view_task("sent",  "in:sent",  sent_emails,  sent_shown_ids)
 
         async def _fetch_trash_task():
             await _fetch_simple_view_task("trash", "in:trash", trash_emails, trash_shown_ids)
@@ -1465,17 +1443,15 @@ def main(page: ft.Page):
             # clear all state immediately so the UI is blank the instant the button is clicked
             all_emails.clear()
             shown_email_ids.clear()
-            sent_emails.clear()
-            sent_shown_ids.clear()
             trash_emails.clear()
             trash_shown_ids.clear()
             email_list_view.controls.clear()
             page.update()
             page.run_task(fetch_task)
 
-        return on_refresh_click, _fetch_sent_task, _fetch_trash_task
+        return on_refresh_click, _fetch_trash_task
 
-    on_refresh_click, _fetch_sent_task, _fetch_trash_task = _build_fetch_controller()
+    on_refresh_click, _fetch_trash_task = _build_fetch_controller()
 
     # ====================
     # Settings Controller
@@ -1586,10 +1562,6 @@ def main(page: ft.Page):
         leading=ft.Icon(ft.Icons.CALENDAR_MONTH), title=ft.Text("Calendar"),
         on_click=lambda e: switch_view("calendar"),
     )
-    tile_sent  = ft.ListTile(
-        leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"),
-        on_click=lambda e: switch_view("sent"),
-    )
     tile_all   = ft.ListTile(
         leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"),
         on_click=lambda e: switch_view("all_mail"),
@@ -1607,7 +1579,6 @@ def main(page: ft.Page):
         (tile_inbox,    "inbox"),
         (tile_moodle,   "moodle"),
         (tile_all,      "all_mail"),
-        (tile_sent,     "sent"),
         (tile_trash,    "trash"),
         (tile_calendar, "calendar"),
         (tile_settings, "settings"),
@@ -1623,7 +1594,6 @@ def main(page: ft.Page):
             tile_moodle,
             tile_calendar,
             ft.Divider(height=20),
-            tile_sent,
             tile_all,
             tile_trash,
             tile_settings,
