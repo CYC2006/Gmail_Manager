@@ -15,6 +15,9 @@ _USER_PREFS_DEFAULTS = {
     "selected_major":      "",   # single department id
     "selected_interests":  [],   # list of interest/hobby ids (multi-select)
     "custom_preferences":  [],   # list of {id, label, keywords} added by the user
+    "user_name":           "",   # display name
+    "user_gender":         "",   # "male" | "female" | "undisclosed"
+    "gmail_account":       "",   # Gmail address used to initialise the connection
 }
 
 
@@ -110,6 +113,36 @@ def get_custom_preferences() -> list[dict]:
 def save_custom_preferences(customs: list[dict]):
     prefs = load_user_prefs()
     prefs["custom_preferences"] = customs
+    save_user_prefs(prefs)
+
+
+def get_user_name() -> str:
+    return load_user_prefs().get("user_name", "")
+
+
+def save_user_name(name: str):
+    prefs = load_user_prefs()
+    prefs["user_name"] = name
+    save_user_prefs(prefs)
+
+
+def get_user_gender() -> str:
+    return load_user_prefs().get("user_gender", "")
+
+
+def save_user_gender(gender: str):
+    prefs = load_user_prefs()
+    prefs["user_gender"] = gender
+    save_user_prefs(prefs)
+
+
+def get_gmail_account() -> str:
+    return load_user_prefs().get("gmail_account", "")
+
+
+def save_gmail_account(address: str):
+    prefs = load_user_prefs()
+    prefs["gmail_account"] = address
     save_user_prefs(prefs)
 
 
