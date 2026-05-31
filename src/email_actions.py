@@ -38,3 +38,23 @@ def trash_email(service, email_id):
         print(f"🗑️ 信件 {email_id} 已移至垃圾桶 (30天後永久刪除)")
     except Exception as e:
         print(f"❌ 刪除失敗: {e}")
+
+def restore_email(service, email_id):
+    """Restore an email from Trash back to Inbox."""
+    try:
+        service.users().messages().modify(
+            userId='me',
+            id=email_id,
+            body={'addLabelIds': ['INBOX'], 'removeLabelIds': ['TRASH']},
+        ).execute()
+        print(f"↩️ Email {email_id} restored to Inbox")
+    except Exception as e:
+        print(f"❌ Restore failed: {e}")
+
+def permanent_delete_email(service, email_id):
+    """Permanently delete an email — cannot be undone."""
+    try:
+        service.users().messages().delete(userId='me', id=email_id).execute()
+        print(f"🗑️ Email {email_id} permanently deleted")
+    except Exception as e:
+        print(f"❌ Permanent delete failed: {e}")

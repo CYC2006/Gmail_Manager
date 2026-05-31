@@ -11,8 +11,12 @@ from datetime import date as _date
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.gmail_reader import get_gmail_service, build_action_service, fetch_and_analyze_emails, get_inbox_stats
-from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email
+from src.gmail_reader import (
+    get_gmail_service, build_action_service,
+    fetch_and_analyze_emails, fetch_simple_emails,
+    get_inbox_stats, get_all_mail_stats,
+)
+from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email, restore_email, permanent_delete_email
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
@@ -49,11 +53,18 @@ def main(page: ft.Page):
     # dict wrapper so every closure can reassign svc["service"] on SSL error
     svc = {"service": None}
 
-    # master list of every fetched email (cached + AI-analyzed), sorted by inbox position
-    all_emails = []
+    # ── All Mail / Inbox master list ──────────────────────────────────────────
+    # All Mail is the canonical data source.  Inbox is a filtered view
+    # (emails where is_in_inbox == True).  Both share these lists.
+    all_emails      = []
+    shown_email_ids = {}   # email_id → _index for currently rendered cards
 
-    # tracks which email ids are currently rendered and their inbox position (_index)
-    shown_email_ids = {}
+    # ── Sent / Trash lightweight lists ───────────────────────────────────────
+    sent_emails      = []
+    trash_emails     = []
+    sent_shown_ids   = {}
+    trash_shown_ids  = {}
+    view_loaded      = {"sent": False, "trash": False}
 
     current_view = "inbox"
 
@@ -64,10 +75,12 @@ def main(page: ft.Page):
     ui_lock = asyncio.Lock()
 
     PAGE_SIZE = 50
-    MAX_PAGES = 5   # maximum inbox pages fetched in the background (50 emails each)
+    MAX_PAGES = 5   # maximum all-mail pages fetched in the background (50 emails each)
 
-    # mirrors the API stats and is adjusted locally on every user action
+    # inbox-scoped counters; adjusted locally on every user action
     live_stats = {"inbox": 0, "unread": 0, "starred": 0}
+    # all-mail counters (excludes trash/spam); adjusted locally on user actions
+    all_mail_stats = {"total": 0, "unread": 0, "starred": 0}
 
     # ====================
     # Stats Bar
@@ -119,21 +132,35 @@ def main(page: ft.Page):
     starred_text = stats_row.controls[2].content.controls[1]
 
     def update_stats_display():
-        # for inbox: use live_stats which mirrors the API count adjusted by user actions
+        # hide stats bar entirely for Sent and Trash views
+        if current_view in ("sent", "trash"):
+            stats_container.visible = False
+            page.update()
+            return
+        stats_container.visible = True
+
         if current_view == "inbox":
+            # inbox: all three badges — total count is reliable here
+            stats_row.controls[0].visible = True
             stats_row.controls[0].tooltip = "Total inbox"
             stats_row.controls[1].tooltip = "Unread"
-            stats_row.controls[2].tooltip = "Starred"
+            stats_row.controls[2].tooltip = "Starred (inbox)"
             inbox_text.value   = str(live_stats["inbox"])
             unread_text.value  = str(live_stats["unread"])
             starred_text.value = str(live_stats["starred"])
-        # for moodle: recount directly from all_emails filtered to moodle only
+        elif current_view == "all_mail":
+            # all mail: no total (resultSizeEstimate is unreliable) — unread + starred only
+            stats_row.controls[0].visible = False
+            stats_row.controls[1].tooltip = "Unread"
+            stats_row.controls[2].tooltip = "Starred"
+            unread_text.value  = str(all_mail_stats["unread"])
+            starred_text.value = str(all_mail_stats["starred"])
         elif current_view == "moodle":
-            stats_row.controls[0].tooltip = "Total Moodle"
+            # moodle: no total — unread + starred scoped to moodle emails
+            stats_row.controls[0].visible = False
             stats_row.controls[1].tooltip = "Moodle unread"
             stats_row.controls[2].tooltip = "Moodle starred"
             moodle = [e for e in all_emails if "moodle" in e['sender'].lower()]
-            inbox_text.value   = str(len(moodle))
             unread_text.value  = str(sum(1 for e in moodle if e.get('is_unread')))
             starred_text.value = str(sum(1 for e in moodle if e.get('is_starred')))
         page.update()
@@ -457,6 +484,31 @@ def main(page: ft.Page):
         modal_body.value      = ""
         modal_category        = data.get('category')
         modal_data[0]         = data
+
+        # configure action buttons based on the current view
+        if current_view == "trash":
+            modal_star_btn.visible    = False
+            modal_archive_btn.visible = True
+            modal_archive_btn.icon       = ft.Icons.RESTORE_FROM_TRASH
+            modal_archive_btn.icon_color = ft.Colors.GREEN_400
+            modal_archive_btn.tooltip    = "Restore to Inbox"
+            modal_trash_btn.visible   = True
+            modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
+            modal_trash_btn.tooltip   = "Permanent delete"
+        elif current_view == "sent":
+            modal_star_btn.visible    = False
+            modal_archive_btn.visible = False
+            modal_trash_btn.visible   = False
+        else:
+            modal_star_btn.visible    = True
+            modal_archive_btn.visible = True
+            modal_archive_btn.icon       = ft.Icons.ARCHIVE
+            modal_archive_btn.icon_color = ft.Colors.GREEN_400
+            modal_archive_btn.tooltip    = "Archive"
+            modal_trash_btn.visible   = True
+            modal_trash_btn.icon      = ft.Icons.DELETE
+            modal_trash_btn.tooltip   = "Delete"
+
         # sync star button to the email's current star state
         _starred = data.get('is_starred', False)
         modal_star_btn.icon       = ft.Icons.STAR if _starred else ft.Icons.STAR_BORDER
@@ -469,7 +521,8 @@ def main(page: ft.Page):
             # mark as read in Gmail if still unread
             if data.get('is_unread'):
                 data['is_unread'] = False
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                live_stats["unread"]      = max(0, live_stats["unread"] - 1)
+                all_mail_stats["unread"]  = max(0, all_mail_stats["unread"] - 1)
                 update_stats_display()
                 try:
                     await asyncio.to_thread(mark_as_read, svc["service"], email_id)
@@ -555,15 +608,44 @@ def main(page: ft.Page):
             card_star.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
             card_star.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
         if new_val:
-            live_stats["starred"] += 1
+            live_stats["starred"]     += 1
+            all_mail_stats["starred"] += 1
         else:
-            live_stats["starred"] = max(0, live_stats["starred"] - 1)
+            live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+            all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
         update_stats_display()
         await _call_with_ssl_retry(toggle_star, data['id'], new_val)
 
-    async def _do_remove_email(data, also_delete_db=False):
-        """Shared UI-removal logic for both card and modal archive/trash actions."""
-        email_id = data['id']
+    async def _do_archive_email(data):
+        """Archive: removes INBOX label.  Email stays in All Mail list; only
+        disappears from Inbox view.  Does NOT delete DB records."""
+        email_id     = data['id']
+        was_in_inbox = data.get('is_in_inbox', True)
+        async with ui_lock:
+            data['is_in_inbox'] = False
+            # remove card from view only when looking at the inbox filter
+            if current_view == "inbox":
+                card = data.get('_card_ref')
+                if card and card in email_list_view.controls:
+                    email_list_view.controls.remove(card)
+                shown_email_ids.pop(email_id, None)
+                fill_next_email()
+            # adjust inbox-scoped counters only if the email actually had INBOX label
+            if was_in_inbox:
+                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                if data.get('is_unread'):
+                    live_stats["unread"]     = max(0, live_stats["unread"] - 1)
+                    all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
+                if data.get('is_starred'):
+                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                    # all_mail starred unchanged — email is still in All Mail
+            update_stats_display()
+        await asyncio.sleep(0)
+
+    async def _do_trash_email(data):
+        """Trash: removes email from All Mail entirely.  Deletes DB records."""
+        email_id     = data['id']
+        was_in_inbox = data.get('is_in_inbox', True)
         async with ui_lock:
             card = data.get('_card_ref')
             if card and card in email_list_view.controls:
@@ -571,34 +653,70 @@ def main(page: ft.Page):
             shown_email_ids.pop(email_id, None)
             all_emails[:] = [item for item in all_emails if item['id'] != email_id]
             fill_next_email()
-            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+            if was_in_inbox:
+                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                if data.get('is_unread'):
+                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                if data.get('is_starred'):
+                    live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+                    all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
             if data.get('is_unread'):
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
-            if data.get('is_starred'):
-                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
+            all_mail_stats["total"] = max(0, all_mail_stats["total"] - 1)
             update_stats_display()
-        await asyncio.sleep(0)           # let Flutter flush before background work
-        if also_delete_db:
-            await asyncio.to_thread(delete_analysis, email_id)
-            await asyncio.to_thread(delete_events_by_email_id, email_id)
+        await asyncio.sleep(0)
+        await asyncio.to_thread(delete_analysis, email_id)
+        await asyncio.to_thread(delete_events_by_email_id, email_id)
+
+    async def _do_restore_email(data):
+        """Restore: remove card from Trash view; the email moves back to Inbox."""
+        email_id = data['id']
+        async with ui_lock:
+            card = data.get('_card_ref')
+            if card and card in email_list_view.controls:
+                email_list_view.controls.remove(card)
+            trash_shown_ids.pop(email_id, None)
+            trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
+        await asyncio.sleep(0)
+
+    async def _do_permanent_delete_email(data):
+        """Permanent delete: remove card from Trash view and clean up DB."""
+        email_id = data['id']
+        async with ui_lock:
+            card = data.get('_card_ref')
+            if card and card in email_list_view.controls:
+                email_list_view.controls.remove(card)
+            trash_shown_ids.pop(email_id, None)
+            trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
+        await asyncio.sleep(0)
+        await asyncio.to_thread(delete_analysis, email_id)
+        await asyncio.to_thread(delete_events_by_email_id, email_id)
 
     async def _modal_on_archive(e):
         data = modal_data[0]
         if data is None:
             return
         close_modal()
-        await asyncio.sleep(0)           # yield so the close renders before card removal
-        await _do_remove_email(data, also_delete_db=False)
-        await _call_with_ssl_retry(archive_email, data['id'])
+        await asyncio.sleep(0)
+        if current_view == "trash":
+            await _do_restore_email(data)
+            await _call_with_ssl_retry(restore_email, data['id'])
+        else:
+            await _do_archive_email(data)
+            await _call_with_ssl_retry(archive_email, data['id'])
 
     async def _modal_on_trash(e):
         data = modal_data[0]
         if data is None:
             return
         close_modal()
-        await asyncio.sleep(0)           # yield so the close renders before card removal
-        await _do_remove_email(data, also_delete_db=True)
-        await _call_with_ssl_retry(trash_email, data['id'])
+        await asyncio.sleep(0)
+        if current_view == "trash":
+            await _do_permanent_delete_email(data)
+            await _call_with_ssl_retry(permanent_delete_email, data['id'])
+        else:
+            await _do_trash_email(data)
+            await _call_with_ssl_retry(trash_email, data['id'])
 
     modal_star_btn.on_click    = lambda e: page.run_task(_modal_on_star,    e)
     modal_archive_btn.on_click = lambda e: page.run_task(_modal_on_archive, e)
@@ -750,7 +868,7 @@ def main(page: ft.Page):
     # Email Card Builder
     # ====================
 
-    def create_email_card(data):
+    def create_email_card(data, card_mode="default"):
         # unread emails get a lighter background to stand out
         card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
         email_id = data['id']
@@ -770,7 +888,8 @@ def main(page: ft.Page):
             if data.get('is_unread'):
                 card_inner.bgcolor = "#2a2a2a"
                 data['is_unread'] = False
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                live_stats["unread"]     = max(0, live_stats["unread"] - 1)
+                all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
                 update_stats_display()
             await _call_with_ssl_retry(mark_as_read, email_id)
 
@@ -782,9 +901,11 @@ def main(page: ft.Page):
             e.control.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
             e.control.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
             if new_val:
-                live_stats["starred"] += 1
+                live_stats["starred"]     += 1
+                all_mail_stats["starred"] += 1
             else:
-                live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+                all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
             # sync modal star button if this card's modal is currently open
             if modal_overlay.visible and modal_data[0] is not None and modal_data[0]['id'] == email_id:
                 modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
@@ -793,12 +914,20 @@ def main(page: ft.Page):
             await _call_with_ssl_retry(toggle_star, email_id, new_val)
 
         async def on_archive(e, card_ref):
-            await _do_remove_email(data, also_delete_db=False)
+            await _do_archive_email(data)
             await _call_with_ssl_retry(archive_email, email_id)
 
         async def on_trash(e, card_ref):
-            await _do_remove_email(data, also_delete_db=True)
+            await _do_trash_email(data)
             await _call_with_ssl_retry(trash_email, email_id)
+
+        async def on_restore(e, card_ref):
+            await _do_restore_email(data)
+            await _call_with_ssl_retry(restore_email, email_id)
+
+        async def on_permanent_delete(e, card_ref):
+            await _do_permanent_delete_email(data)
+            await _call_with_ssl_retry(permanent_delete_email, email_id)
 
         async def on_tap(e):
             # update card read visual immediately (card_inner is local to this closure)
@@ -863,33 +992,60 @@ def main(page: ft.Page):
                         controls=[
                             ft.Container(content=title_control, expand=True),
                             ft.Row(
-                                controls=[
-                                    ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                    ft.IconButton(
-                                        icon=ft.Icons.MARK_EMAIL_READ,
-                                        icon_size=18,
-                                        padding=ft.Padding.all(2),
-                                        tooltip="Mark as read",
-                                        on_click=lambda e: page.run_task(on_mark_read, e),
-                                    ),
-                                    _card_star_btn,
-                                    ft.IconButton(
-                                        icon=ft.Icons.ARCHIVE,
-                                        icon_size=18,
-                                        padding=ft.Padding.all(2),
-                                        icon_color=ft.Colors.GREEN_400,
-                                        tooltip="Archive",
-                                        on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
-                                    ),
-                                    ft.IconButton(
-                                        icon=ft.Icons.DELETE,
-                                        icon_size=18,
-                                        padding=ft.Padding.all(2),
-                                        icon_color=ft.Colors.RED_400,
-                                        tooltip="Delete",
-                                        on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
-                                    ),
-                                ],
+                                controls=(
+                                    # ── Trash view: Restore + Permanent Delete ──
+                                    [
+                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                        ft.IconButton(
+                                            icon=ft.Icons.RESTORE_FROM_TRASH,
+                                            icon_size=18,
+                                            padding=ft.Padding.all(2),
+                                            icon_color=ft.Colors.GREEN_400,
+                                            tooltip="Restore to Inbox",
+                                            on_click=lambda e: page.run_task(on_restore, e, card_ref[0]),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE_FOREVER,
+                                            icon_size=18,
+                                            padding=ft.Padding.all(2),
+                                            icon_color=ft.Colors.RED_400,
+                                            tooltip="Permanent delete",
+                                            on_click=lambda e: page.run_task(on_permanent_delete, e, card_ref[0]),
+                                        ),
+                                    ] if card_mode == "trash" else
+                                    # ── Sent view: read-only, time only ──
+                                    [
+                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                    ] if card_mode == "sent" else
+                                    # ── Default (Inbox / All Mail / Moodle) ──
+                                    [
+                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                        ft.IconButton(
+                                            icon=ft.Icons.MARK_EMAIL_READ,
+                                            icon_size=18,
+                                            padding=ft.Padding.all(2),
+                                            tooltip="Mark as read",
+                                            on_click=lambda e: page.run_task(on_mark_read, e),
+                                        ),
+                                        _card_star_btn,
+                                        ft.IconButton(
+                                            icon=ft.Icons.ARCHIVE,
+                                            icon_size=18,
+                                            padding=ft.Padding.all(2),
+                                            icon_color=ft.Colors.GREEN_400,
+                                            tooltip="Archive",
+                                            on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE,
+                                            icon_size=18,
+                                            padding=ft.Padding.all(2),
+                                            icon_color=ft.Colors.RED_400,
+                                            tooltip="Delete",
+                                            on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
+                                        ),
+                                    ]
+                                ),
                                 spacing=0,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
@@ -933,34 +1089,59 @@ def main(page: ft.Page):
     # View Management
     # ====================
 
-    # returns True if this email belongs in the currently active sidebar view
+    # ── per-view helpers ──────────────────────────────────────────────────────
+
+    def _active_lists():
+        """Return (email_list, shown_ids_dict) for the current view."""
+        if current_view in ("inbox", "all_mail", "moodle"):
+            return all_emails, shown_email_ids
+        if current_view == "sent":
+            return sent_emails, sent_shown_ids
+        if current_view == "trash":
+            return trash_emails, trash_shown_ids
+        return all_emails, shown_email_ids
+
+    def _card_mode() -> str:
+        if current_view == "trash":
+            return "trash"
+        if current_view == "sent":
+            return "sent"
+        return "default"
+
+    # returns True if this email should be visible in the currently active view
     def _matches_view(data) -> bool:
         if current_view == "moodle":
             return is_moodle(data)
-        return True  # inbox shows all emails
+        if current_view == "inbox":
+            return data.get("is_in_inbox", True)
+        return True  # all_mail / sent / trash show every email in their list
 
     def render_current_view():
-        # rebuild the visible card list from scratch whenever the view changes
+        """Rebuild the visible card list from scratch for the current view."""
+        active_emails, active_shown = _active_lists()
+        mode = _card_mode()
         email_list_view.controls.clear()
-        shown_email_ids.clear()
-        for data in all_emails:
-            if len(shown_email_ids) >= PAGE_SIZE:
+        active_shown.clear()
+        for data in active_emails:
+            if len(active_shown) >= PAGE_SIZE:
                 break
             if not _matches_view(data):
                 continue
-            email_list_view.controls.append(create_email_card(data))
-            shown_email_ids[data['id']] = data.get('_index', float('inf'))
+            email_list_view.controls.append(create_email_card(data, card_mode=mode))
+            active_shown[data['id']] = data.get('_index', float('inf'))
         update_stats_display()
 
     def fill_next_email():
-        # when a card is removed (archived/trashed), pull the next buffered email into view
-        for data in all_emails:
-            if data['id'] in shown_email_ids:
+        """When a card is removed, pull the next buffered email into view."""
+        active_emails, active_shown = _active_lists()
+        mode = _card_mode()
+        for data in active_emails:
+            if data['id'] in active_shown:
                 continue
             if not _matches_view(data):
                 continue
-            email_list_view.controls.append(create_email_card(data))
-            shown_email_ids[data['id']] = data.get('_index', float('inf'))
+            email_list_view.controls.append(create_email_card(data, card_mode=mode))
+            active_shown[data['id']] = data.get('_index', float('inf'))
             return
 
     def switch_view(view: str):
@@ -975,6 +1156,9 @@ def main(page: ft.Page):
         _icon_map = {
             "inbox":    (ft.Icons.INBOX,          "Inbox"),
             "moodle":   (ft.Icons.SCHOOL,         "Moodle"),
+            "all_mail": (ft.Icons.ALL_INBOX,      "All Mail"),
+            "sent":     (ft.Icons.SEND,           "Sent"),
+            "trash":    (ft.Icons.DELETE,         "Trash"),
             "calendar": (ft.Icons.CALENDAR_MONTH, "Calendar"),
             "settings": (ft.Icons.SETTINGS,       "Settings"),
         }
@@ -983,15 +1167,20 @@ def main(page: ft.Page):
         header_title.value = title_text
 
         # show only the relevant panel
-        inbox_panel.visible       = view in ("inbox", "moodle")
+        inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "sent", "trash")
         calendar_panel.visible    = view == "calendar"
         preferences_panel.visible = False
         settings_panel.visible    = view == "settings"
-        header_refresh_btn.visible = view != "settings"
+        # hide refresh button for settings, sent, and trash (sent/trash re-fetch on each visit)
+        header_refresh_btn.visible = view not in ("settings", "sent", "trash")
 
-        if view in ("inbox", "moodle"):
+        if view in ("inbox", "moodle", "all_mail"):
             render_current_view()
             update_stats_display()
+        elif view == "sent":
+            page.run_task(_fetch_sent_task)
+        elif view == "trash":
+            page.run_task(_fetch_trash_task)
         elif view == "calendar":
             _refresh_calendar()
         elif view == "settings":
@@ -1016,18 +1205,19 @@ def main(page: ft.Page):
         all_emails.insert(pos, email_data)
 
     def append_email_to_view(email_data):
-        # skip if the visible page is already full — email stays buffered in all_emails
-        if len(shown_email_ids) >= PAGE_SIZE:
+        """Insert one email card into the current view, respecting PAGE_SIZE."""
+        active_emails, active_shown = _active_lists()
+        mode = _card_mode()
+        if len(active_shown) >= PAGE_SIZE:
             return
-        if email_data['id'] in shown_email_ids:
+        if email_data['id'] in active_shown:
             return
         if not _matches_view(email_data):
             return
-        # insert at the correct position based on inbox order
-        new_idx = email_data.get('_index', float('inf'))
-        position = sum(1 for idx in shown_email_ids.values() if idx < new_idx)
-        email_list_view.controls.insert(position, create_email_card(email_data))
-        shown_email_ids[email_data['id']] = new_idx
+        new_idx  = email_data.get('_index', float('inf'))
+        position = sum(1 for idx in active_shown.values() if idx < new_idx)
+        email_list_view.controls.insert(position, create_email_card(email_data, card_mode=mode))
+        active_shown[email_data['id']] = new_idx
         update_stats_display()
 
     # ====================
@@ -1061,6 +1251,45 @@ def main(page: ft.Page):
             import traceback
             traceback.print_exc()
             print(f"[ERROR] Background fetch failed: {ex}")
+
+    async def _fetch_simple_view_task(view_name: str, query: str,
+                                      email_store: list, shown_store: dict):
+        """Generic lightweight fetch for Sent / Trash views (metadata only, no AI).
+
+        Uses build_action_service() to get a FRESH httplib2.Http connection pool
+        so it never shares an SSL socket with the background All-Mail fetch task.
+        """
+        email_store.clear()
+        shown_store.clear()
+        email_list_view.controls.clear()
+        page.update()
+        try:
+            view_svc = await asyncio.to_thread(build_action_service)
+            gen = fetch_simple_emails(view_svc, query)
+            idx = 0
+            while True:
+                email_data = await asyncio.to_thread(get_next, gen)
+                if email_data is None:
+                    break
+                if "_next_page_token" in email_data:
+                    break   # load first page only
+                if current_view != view_name:
+                    return  # user navigated away
+                email_data["_index"] = idx
+                idx += 1
+                email_store.append(email_data)
+                append_email_to_view(email_data)
+                page.update()
+                await asyncio.sleep(0)
+        except Exception as ex:
+            import traceback; traceback.print_exc()
+            print(f"[ERROR] {view_name} fetch failed: {ex}")
+
+    async def _fetch_sent_task():
+        await _fetch_simple_view_task("sent",  "in:sent",  sent_emails,  sent_shown_ids)
+
+    async def _fetch_trash_task():
+        await _fetch_simple_view_task("trash", "in:trash", trash_emails, trash_shown_ids)
 
     async def fetch_task():
         this_gen = fetch_gen
@@ -1124,16 +1353,21 @@ def main(page: ft.Page):
             if fetch_gen != this_gen:
                 return
 
-            # update the stats badges (inbox total / unread / starred)
+            # update the stats badges — inbox-scoped first, then all-mail
             stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
-
-            # guard: user may have clicked refresh while stats were loading
             if fetch_gen != this_gen:
                 return
-
             live_stats["inbox"]   = stats["inbox"]
             live_stats["unread"]  = stats["unread"]
             live_stats["starred"] = stats["starred"]
+
+            am_stats = await asyncio.to_thread(get_all_mail_stats, svc["service"])
+            if fetch_gen != this_gen:
+                return
+            all_mail_stats["total"]   = am_stats["total"]
+            all_mail_stats["unread"]  = am_stats["unread"]
+            all_mail_stats["starred"] = am_stats["starred"]
+
             update_stats_display()
 
             # state was already cleared by on_refresh_click; clear again as a safety
@@ -1179,10 +1413,13 @@ def main(page: ft.Page):
         nonlocal fetch_gen
         # increment gen id — background tasks compare against this and self-cancel
         fetch_gen += 1
-        # clear all state immediately so the UI is blank the instant the button is clicked,
-        # not after fetch_task has had a chance to do it asynchronously
+        # clear all state immediately so the UI is blank the instant the button is clicked
         all_emails.clear()
         shown_email_ids.clear()
+        sent_emails.clear()
+        sent_shown_ids.clear()
+        trash_emails.clear()
+        trash_shown_ids.clear()
         email_list_view.controls.clear()
         page.update()
         page.run_task(fetch_task)
@@ -1203,19 +1440,29 @@ def main(page: ft.Page):
         leading=ft.Icon(ft.Icons.CALENDAR_MONTH), title=ft.Text("Calendar"),
         on_click=lambda e: switch_view("calendar"),
     )
-    # placeholder tiles — not yet wired to any view
-    tile_sent  = ft.ListTile(leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"))
-    tile_all   = ft.ListTile(leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"))
-    tile_trash = ft.ListTile(leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"))
+    tile_sent  = ft.ListTile(
+        leading=ft.Icon(ft.Icons.SEND),      title=ft.Text("Sent"),
+        on_click=lambda e: switch_view("sent"),
+    )
+    tile_all   = ft.ListTile(
+        leading=ft.Icon(ft.Icons.ALL_INBOX), title=ft.Text("All Mails"),
+        on_click=lambda e: switch_view("all_mail"),
+    )
+    tile_trash = ft.ListTile(
+        leading=ft.Icon(ft.Icons.DELETE),    title=ft.Text("Trash"),
+        on_click=lambda e: switch_view("trash"),
+    )
     tile_settings = ft.ListTile(
         leading=ft.Icon(ft.Icons.SETTINGS), title=ft.Text("Settings"),
         on_click=lambda e: switch_view("settings"),
     )
 
-    # only tiles with an active view need to be in this list for selection highlighting
     sidebar_tiles = [
         (tile_inbox,    "inbox"),
         (tile_moodle,   "moodle"),
+        (tile_all,      "all_mail"),
+        (tile_sent,     "sent"),
+        (tile_trash,    "trash"),
         (tile_calendar, "calendar"),
         (tile_settings, "settings"),
     ]
@@ -1745,13 +1992,20 @@ def main(page: ft.Page):
     )
     header_title = ft.Text("Inbox", size=30, weight="bold")
 
-    # inbox_panel wraps stats badges + email list — hidden when in calendar view
+    # wrapper that can be hidden for Sent / Trash views
+    stats_container = ft.Container(
+        content=stats_row,
+        padding=ft.Padding.only(left=10),
+        visible=True,
+    )
+
+    # inbox_panel wraps stats badges + email list — shared by inbox/all_mail/sent/trash
     inbox_panel = ft.Column(
         expand=True,
         visible=True,
         spacing=0,
         controls=[
-            ft.Container(content=stats_row, padding=ft.Padding.only(left=10)),
+            stats_container,
             ft.Divider(height=8, color="transparent"),
             email_list_view,
         ],

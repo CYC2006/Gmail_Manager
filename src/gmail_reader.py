@@ -78,19 +78,40 @@ def build_action_service():
     return get_gmail_service()
 
 
-# get Number of mails of INBOX / UNREAD / STARRED
+# get Number of mails of INBOX / UNREAD / STARRED (inbox-scoped)
 def get_inbox_stats(service):
     try:
-        inbox   = service.users().labels().get(userId="me", id="INBOX").execute()
-        starred = service.users().labels().get(userId="me", id="STARRED").execute()
+        inbox = service.users().labels().get(userId="me", id="INBOX").execute()
+        # inbox-scoped starred: messages.list gives resultSizeEstimate quickly
+        starred_result = service.users().messages().list(
+            userId="me", q="is:starred is:inbox", maxResults=1
+        ).execute()
         return {
             "inbox":   inbox.get("messagesTotal", 0),
             "unread":  inbox.get("messagesUnread", 0),
-            "starred": starred.get("messagesTotal", 0),
+            "starred": starred_result.get("resultSizeEstimate", 0),
         }
     except Exception as e:
         print(f"[ERROR] Failed to get inbox stats: {e}")
         return {"inbox": 0, "unread": 0, "starred": 0}
+
+
+def get_all_mail_stats(service):
+    """Return total / unread / starred counts for All Mail (excludes Trash and Spam)."""
+    try:
+        total_result  = service.users().messages().list(
+            userId="me", q="-in:trash -in:spam", maxResults=1
+        ).execute()
+        unread_label  = service.users().labels().get(userId="me", id="UNREAD").execute()
+        starred_label = service.users().labels().get(userId="me", id="STARRED").execute()
+        return {
+            "total":   total_result.get("resultSizeEstimate", 0),
+            "unread":  unread_label.get("messagesTotal", 0),
+            "starred": starred_label.get("messagesTotal", 0),
+        }
+    except Exception as e:
+        print(f"[ERROR] Failed to get all mail stats: {e}")
+        return {"total": 0, "unread": 0, "starred": 0}
 
 
 METADATA_BATCH_SIZE = 10  # Gmail concurrent request limit per user
@@ -143,12 +164,16 @@ def _parse_meta(msg_meta):
 # Two-pass strategy:
 #   Pass 1 — yield cached emails immediately (near-instant)
 #   Pass 2 — AI categorizes uncached emails one by one (slower)
-def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
+#
+# query defaults to All Mail (inbox + archived, excludes trash/spam).
+# Inbox is a filtered view of All Mail in the UI layer (is_in_inbox flag).
+def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
+                              query="-in:trash -in:spam"):
     init_db()
     init_calendar_db()
     print(f"[SYSTEM] Fetching emails (page_token={page_token or 'first page'})...")
 
-    list_kwargs = {"userId": "me", "q": "is:inbox", "maxResults": MAX_RESULTS}
+    list_kwargs = {"userId": "me", "q": query, "maxResults": MAX_RESULTS}
     if page_token:
         list_kwargs["pageToken"] = page_token
 
@@ -162,7 +187,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
     print(f"[SYSTEM] Batch fetching metadata for {len(messages)} emails...")
     meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
 
-    ai_queue = []  # (index, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle)
+    # (index, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle, is_in_inbox)
+    ai_queue = []
 
     # ── Pass 1: yield cached emails immediately ──
     for i, message in enumerate(messages):
@@ -173,7 +199,9 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                 continue
 
             sender, subject, receive_time, is_unread, is_starred = _parse_meta(msg_meta)
-            is_moodle = "moodle" in sender.lower()
+            label_ids  = msg_meta.get("labelIds", [])
+            is_in_inbox = "INBOX" in label_ids
+            is_moodle  = "moodle" in sender.lower()
 
             cached = get_cached_result(email_id)
             if cached:
@@ -186,18 +214,20 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
-                    "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                    "is_unread": is_unread, "is_starred": is_starred,
+                    "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                     "matched_prefs": matched_prefs,
                 }
             else:
-                ai_queue.append((i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle))
+                ai_queue.append((i, email_id, sender, subject, receive_time,
+                                 is_unread, is_starred, is_moodle, is_in_inbox))
 
         except Exception as error:
             print(f"[ERROR] Pass 1 failed for {message['id']}: {error}")
 
     # ── Pass 2: AI categorize uncached emails ──
     tpd_logged = False
-    for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle in ai_queue:
+    for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle, is_in_inbox in ai_queue:
         if _ai_agent.TPD_EXHAUSTED:
             if not tpd_logged:
                 print("[SYSTEM] Daily token limit exhausted — remaining emails shown uncategorized.")
@@ -205,7 +235,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": OTHER, "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                "is_unread": is_unread, "is_starred": is_starred,
+                "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                 "matched_prefs": [],
             }
             continue
@@ -250,13 +281,53 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0):
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": category, "subject": subject,
-                "is_unread": is_unread, "is_starred": is_starred, "_index": i + page_offset,
+                "is_unread": is_unread, "is_starred": is_starred,
+                "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                 "matched_prefs": matched_prefs,
             }
         except Exception as error:
             print(f"[ERROR] Pass 2 failed for {email_id}: {error}")
 
     # If Gmail says there are more pages, yield a sentinel so the caller can chain
+    next_token = results.get("nextPageToken")
+    if next_token:
+        yield {"_next_page_token": next_token}
+
+
+def fetch_simple_emails(service, query, page_token=None, page_offset=0):
+    """Lightweight metadata-only fetch for Sent / Trash views.
+
+    No AI categorization, no DB cache reads/writes.  Each yielded dict includes
+    is_in_inbox so the UI layer can decide which action buttons to show.
+    Yields a {"_next_page_token": "..."} sentinel when more pages exist.
+    """
+    list_kwargs = {"userId": "me", "q": query, "maxResults": MAX_RESULTS}
+    if page_token:
+        list_kwargs["pageToken"] = page_token
+
+    results  = service.users().messages().list(**list_kwargs).execute()
+    messages = results.get("messages", [])
+    if not messages:
+        return
+
+    meta_map = _batch_fetch_metadata(service, [m["id"] for m in messages])
+
+    for i, message in enumerate(messages):
+        email_id = message["id"]
+        msg_meta = meta_map.get(email_id)
+        if not msg_meta:
+            continue
+        sender, subject, receive_time, is_unread, is_starred = _parse_meta(msg_meta)
+        label_ids = msg_meta.get("labelIds", [])
+        yield {
+            "id": email_id, "sender": sender, "time": receive_time[:16],
+            "category": OTHER, "subject": subject,
+            "is_unread": is_unread, "is_starred": is_starred,
+            "is_in_inbox": "INBOX" in label_ids,
+            "_index": i + page_offset,
+            "matched_prefs": [],
+        }
+
     next_token = results.get("nextPageToken")
     if next_token:
         yield {"_next_page_token": next_token}
