@@ -92,78 +92,83 @@ def main(page: ft.Page):
     # shows the authenticated user's address under the app title
     user_email_text = ft.Text("Loading...", size=12, color=ft.Colors.OUTLINE)
 
-    # three badge chips: total inbox / unread / starred
-    stats_row = ft.Row(
-        controls=[
-            ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.ALL_INBOX, size=13, color=ft.Colors.BLUE_GREY_300),
-                    ft.Text("--", size=12, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
-                ], spacing=3),
-                bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="Total inbox",
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.MARK_EMAIL_UNREAD, size=13, color=ft.Colors.BLUE_300),
-                    ft.Text("--", size=12, color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
-                ], spacing=3),
-                bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="Unread",
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.STAR, size=13, color=ft.Colors.YELLOW_600),
-                    ft.Text("--", size=12, color=ft.Colors.YELLOW_600, weight=ft.FontWeight.BOLD),
-                ], spacing=3),
-                bgcolor="#2a2a2a", border_radius=6,
-                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                tooltip="Starred",
-            ),
-        ],
-        spacing=6,
-    )
+    def _build_stats_bar():
+        # three badge chips: total inbox / unread / starred
+        stats_row = ft.Row(
+            controls=[
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.ALL_INBOX, size=13, color=ft.Colors.BLUE_GREY_300),
+                        ft.Text("--", size=12, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
+                    ], spacing=3),
+                    bgcolor="#2a2a2a", border_radius=6,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    tooltip="Total inbox",
+                ),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.MARK_EMAIL_UNREAD, size=13, color=ft.Colors.BLUE_300),
+                        ft.Text("--", size=12, color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
+                    ], spacing=3),
+                    bgcolor="#2a2a2a", border_radius=6,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    tooltip="Unread",
+                ),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.STAR, size=13, color=ft.Colors.YELLOW_600),
+                        ft.Text("--", size=12, color=ft.Colors.YELLOW_600, weight=ft.FontWeight.BOLD),
+                    ], spacing=3),
+                    bgcolor="#2a2a2a", border_radius=6,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    tooltip="Starred",
+                ),
+            ],
+            spacing=6,
+        )
 
-    # direct references to the number text nodes so fetch_task can update them
-    inbox_text   = stats_row.controls[0].content.controls[1]
-    unread_text  = stats_row.controls[1].content.controls[1]
-    starred_text = stats_row.controls[2].content.controls[1]
+        # direct references to the number text nodes so fetch_task can update them
+        inbox_text   = stats_row.controls[0].content.controls[1]
+        unread_text  = stats_row.controls[1].content.controls[1]
+        starred_text = stats_row.controls[2].content.controls[1]
 
-    def update_stats_display():
-        # hide stats bar entirely for Sent and Trash views
-        if current_view in ("sent", "trash"):
-            stats_container.visible = False
+        def update_stats_display():
+            # hide stats bar entirely for Sent and Trash views
+            if current_view in ("sent", "trash"):
+                stats_container.visible = False
+                page.update()
+                return
+            stats_container.visible = True
+
+            if current_view == "inbox":
+                # inbox: all three badges — total count is reliable here
+                stats_row.controls[0].visible = True
+                stats_row.controls[0].tooltip = "Total inbox"
+                stats_row.controls[1].tooltip = "Unread"
+                stats_row.controls[2].tooltip = "Starred (inbox)"
+                inbox_text.value   = str(live_stats["inbox"])
+                unread_text.value  = str(live_stats["unread"])
+                starred_text.value = str(live_stats["starred"])
+            elif current_view == "all_mail":
+                # all mail: no total (resultSizeEstimate is unreliable) — unread + starred only
+                stats_row.controls[0].visible = False
+                stats_row.controls[1].tooltip = "Unread"
+                stats_row.controls[2].tooltip = "Starred"
+                unread_text.value  = str(all_mail_stats["unread"])
+                starred_text.value = str(all_mail_stats["starred"])
+            elif current_view == "moodle":
+                # moodle: no total — unread + starred scoped to moodle emails
+                stats_row.controls[0].visible = False
+                stats_row.controls[1].tooltip = "Moodle unread"
+                stats_row.controls[2].tooltip = "Moodle starred"
+                moodle = [e for e in all_emails if "moodle" in e['sender'].lower()]
+                unread_text.value  = str(sum(1 for e in moodle if e.get('is_unread')))
+                starred_text.value = str(sum(1 for e in moodle if e.get('is_starred')))
             page.update()
-            return
-        stats_container.visible = True
 
-        if current_view == "inbox":
-            # inbox: all three badges — total count is reliable here
-            stats_row.controls[0].visible = True
-            stats_row.controls[0].tooltip = "Total inbox"
-            stats_row.controls[1].tooltip = "Unread"
-            stats_row.controls[2].tooltip = "Starred (inbox)"
-            inbox_text.value   = str(live_stats["inbox"])
-            unread_text.value  = str(live_stats["unread"])
-            starred_text.value = str(live_stats["starred"])
-        elif current_view == "all_mail":
-            # all mail: no total (resultSizeEstimate is unreliable) — unread + starred only
-            stats_row.controls[0].visible = False
-            stats_row.controls[1].tooltip = "Unread"
-            stats_row.controls[2].tooltip = "Starred"
-            unread_text.value  = str(all_mail_stats["unread"])
-            starred_text.value = str(all_mail_stats["starred"])
-        elif current_view == "moodle":
-            # moodle: no total — unread + starred scoped to moodle emails
-            stats_row.controls[0].visible = False
-            stats_row.controls[1].tooltip = "Moodle unread"
-            stats_row.controls[2].tooltip = "Moodle starred"
-            moodle = [e for e in all_emails if "moodle" in e['sender'].lower()]
-            unread_text.value  = str(sum(1 for e in moodle if e.get('is_unread')))
-            starred_text.value = str(sum(1 for e in moodle if e.get('is_starred')))
-        page.update()
+        return update_stats_display, stats_row
+
+    update_stats_display, stats_row = _build_stats_bar()
 
     # ====================
     # Email Detail Modal
