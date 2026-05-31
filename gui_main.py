@@ -30,6 +30,11 @@ from src.categories import (
     IMPORTANT, LECTURE, ANNOUNCE, ADS, EXTERNAL, OTHER,
 )
 
+def _is_moodle(data) -> bool:
+    """Return True if the email was sent from Moodle."""
+    return "moodle" in data['sender'].lower()
+
+
 def main(page: ft.Page):
 
     # ====================
@@ -868,9 +873,6 @@ def main(page: ft.Page):
     # ====================
 
     def _build_email_card_factory():
-        # returns True if the email was sent from Moodle
-        def is_moodle(data) -> bool:
-            return "moodle" in data['sender'].lower()
 
         # maps AI category labels to badge background colors
         def get_tag_color(category: str):
@@ -969,7 +971,7 @@ def main(page: ft.Page):
             # --------------------
 
             # Moodle emails show an icon + "Moodle" label instead of the sender name
-            if is_moodle(data):
+            if _is_moodle(data):
                 title_control = ft.Row(
                     controls=[
                         ft.Icon(ft.Icons.SCHOOL, size=20, color=ft.Colors.ORANGE_300),
@@ -1150,7 +1152,7 @@ def main(page: ft.Page):
         # returns True if this email should be visible in the currently active view
         def _matches_view(data) -> bool:
             if current_view == "moodle":
-                return is_moodle(data)
+                return _is_moodle(data)
             if current_view == "inbox":
                 return data.get("is_in_inbox", True)
             return True  # all_mail / sent / trash show every email in their list
@@ -2042,9 +2044,9 @@ def main(page: ft.Page):
             ],
         )
 
-        return calendar_panel, create_event_overlay, ce_view_overlay
+        return calendar_panel, create_event_overlay, ce_view_overlay, _refresh_calendar
 
-    calendar_panel, create_event_overlay, ce_view_overlay = _build_calendar_controller()
+    calendar_panel, create_event_overlay, ce_view_overlay, _refresh_calendar = _build_calendar_controller()
 
     # ====================
     # Main Content Area
