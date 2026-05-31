@@ -1101,20 +1101,20 @@ def main(page: ft.Page):
                     ],
                 ),
             )
+            # Use Container.on_click (InkWell-based) instead of GestureDetector.on_tap
+            # so that child IconButtons win the gesture arena over the card-level tap.
+            # GestureDetector.on_tap can intercept macOS trackpad light taps before
+            # inner buttons receive them; Container.on_click does not have this issue.
+            card_inner.on_click = lambda e: page.run_task(on_tap, e)
             card = ft.Card(
                 margin=ft.Margin.symmetric(horizontal=10, vertical=3),
                 content=card_inner,
             )
-            gesture = ft.GestureDetector(
-                on_tap=lambda e: page.run_task(on_tap, e),
-                content=card,
-            )
-            # fill the forward reference with the outermost widget —
-            # email_list_view holds GestureDetectors, not Cards
-            card_ref[0] = gesture
+            # email_list_view holds Cards directly
+            card_ref[0] = card
             # store in data so modal action buttons can remove the card without a lookup
-            data['_card_ref'] = gesture
-            return gesture
+            data['_card_ref'] = card
+            return card
 
         return create_email_card
 
