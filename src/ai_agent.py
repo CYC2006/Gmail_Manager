@@ -88,7 +88,7 @@ def _extract_json(text: str) -> dict | None:
     try:
         obj, _ = json.JSONDecoder().raw_decode(text, start)
         return obj if isinstance(obj, dict) else None
-    except JSONDecodeError:
+    except json.JSONDecodeError:
         return None
 
 
