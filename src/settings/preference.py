@@ -230,8 +230,6 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
         padding=ft.Padding.only(top=16),
         content=ft.Column(
             [
-                interest_header_row,
-                ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
                 interest_grid,
                 ft.Container(expand=True),
                 ft.Row([_save_btn], alignment=ft.MainAxisAlignment.END),
