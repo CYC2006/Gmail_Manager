@@ -25,6 +25,18 @@ def _html_to_text(html: str) -> str:
     return _clean_text(text)
 
 
+def _decode_part(data: str, mime_type: str, label: str) -> str:
+    """Base64-decode one message part and return plain text.
+    Logs a warning (instead of silently returning '') if decoding fails."""
+    safe_data = data + "=" * (-len(data) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(safe_data).decode("utf-8", errors="replace")
+        return _html_to_text(decoded) if mime_type == "text/html" else decoded
+    except Exception as e:
+        print(f"[PARSER] Failed to decode {label} part ({mime_type}): {e}")
+        return ""
+
+
 def get_email_body(payload):
     """Extracts and decodes the readable body from a Gmail message payload.
 
@@ -41,25 +53,12 @@ def get_email_body(payload):
             if mime_type == "text/plain":
                 data = part["body"].get("data")
                 if data:
-                    safe_data = data + "=" * (-len(data) % 4)
-                    try:
-                        body += base64.urlsafe_b64decode(safe_data).decode(
-                            "utf-8", errors="replace"
-                        )
-                    except Exception:
-                        pass
+                    body += _decode_part(data, "text/plain", "plain-text")
 
             elif mime_type == "text/html":
                 data = part["body"].get("data")
                 if data and not body:   # only use HTML if no plain-text found yet
-                    safe_data = data + "=" * (-len(data) % 4)
-                    try:
-                        raw_html = base64.urlsafe_b64decode(safe_data).decode(
-                            "utf-8", errors="replace"
-                        )
-                        body += _html_to_text(raw_html)
-                    except Exception:
-                        pass
+                    body += _decode_part(data, "text/html", "html")
 
             elif "parts" in part:
                 # Recurse into nested multipart (e.g. multipart/alternative inside multipart/mixed)
@@ -71,16 +70,7 @@ def get_email_body(payload):
     else:
         data = payload.get("body", {}).get("data")
         if data:
-            safe_data = data + "=" * (-len(data) % 4)
-            try:
-                decoded = base64.urlsafe_b64decode(safe_data).decode(
-                    "utf-8", errors="replace"
-                )
-                if payload.get("mimeType") == "text/html":
-                    body += _html_to_text(decoded)
-                else:
-                    body += decoded
-            except Exception:
-                pass
+            mime_type = payload.get("mimeType", "")
+            body += _decode_part(data, mime_type, "single-part")
 
     return _clean_text(body)

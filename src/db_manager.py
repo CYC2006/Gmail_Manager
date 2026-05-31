@@ -27,12 +27,12 @@ def init_db():
         # add detail_analysis column to existing databases that predate this schema
         try:
             conn.execute('ALTER TABLE analyzed_emails ADD COLUMN detail_analysis TEXT')
-        except Exception:
+        except sqlite3.OperationalError:
             pass  # column already exists
         # add matched_prefs column to existing databases that predate this schema
         try:
             conn.execute('ALTER TABLE analyzed_emails ADD COLUMN matched_prefs TEXT')
-        except Exception:
+        except sqlite3.OperationalError:
             pass  # column already exists
 
     # purge entries not seen in any fetch for over 30 days
@@ -54,7 +54,7 @@ def get_cached_result(email_id):
         if matched_raw is not None:
             try:
                 matched = json.loads(matched_raw)
-            except Exception:
+            except json.JSONDecodeError:
                 matched = []
         else:
             matched = None  # never been matched — old cache entry
@@ -116,7 +116,7 @@ def get_detail_analysis(email_id):
     if row and row["detail_analysis"]:
         try:
             return json.loads(row["detail_analysis"])
-        except Exception:
+        except json.JSONDecodeError:
             return None
     return None
 

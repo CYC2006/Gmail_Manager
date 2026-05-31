@@ -1169,7 +1169,7 @@ def main(page: ft.Page):
         # show only the relevant panel
         inbox_panel.visible       = view in ("inbox", "moodle", "all_mail", "sent", "trash")
         calendar_panel.visible    = view == "calendar"
-        preferences_panel.visible = False
+
         settings_panel.visible    = view == "settings"
         # hide refresh button for settings, sent, and trash (sent/trash re-fetch on each visit)
         header_refresh_btn.visible = view not in ("settings", "sent", "trash")
@@ -1787,7 +1787,8 @@ def main(page: ft.Page):
             time_parts.append("All day")
         else:
             tm = ev.get("event_time", "")
-            hm = tm[11:16] if len(tm) > 10 else ""
+            # event_time is stored as "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"; split on space
+            hm = tm.split(" ", 1)[1] if " " in tm else ""
             if hm:
                 time_parts.append(f"Start  {hm}")
             if ev.get("end_time"):
@@ -1928,15 +1929,15 @@ def main(page: ft.Page):
         )
 
     _tab_content_map = {
-        "preference": lambda: _pref_tab.content,
-        "account":    lambda: _account_tab.content,
-        "api_keys":   lambda: _api_tab.content,
+        "preference": _pref_tab.content,
+        "account":    _account_tab.content,
+        "api_keys":   _api_tab.content,
     }
     def _settings_tab_btn(label, key, icon):
         def on_click(e):
             settings_tab_state[0] = key
-            builder = _tab_content_map.get(key)
-            settings_content.content = builder() if builder else _settings_placeholder(label)
+            new_content = _tab_content_map.get(key)
+            settings_content.content = new_content if new_content is not None else _settings_placeholder(label)
             for k, btn in _stab_btns.items():
                 btn.style = _stab_style(k == key)
             page.update()
@@ -1978,8 +1979,6 @@ def main(page: ft.Page):
         controls=[settings_tab_bar, settings_content],
     )
 
-    # preferences_panel kept for backward-compat with switch_view wiring
-    preferences_panel = ft.Column(expand=True, visible=False, spacing=0, controls=[])
 
     # ====================
     # Main Content Area
@@ -2035,7 +2034,6 @@ def main(page: ft.Page):
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 inbox_panel,
                 calendar_panel,
-                preferences_panel,
                 settings_panel,
             ]
         )

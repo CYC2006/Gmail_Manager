@@ -36,7 +36,7 @@ def init_calendar_db():
         ]:
             try:
                 conn.execute(col_sql)
-            except Exception:
+            except sqlite3.OperationalError:
                 pass  # column already exists
 
 

@@ -193,12 +193,13 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
                     color=ft.Colors.GREY_200),
             ft.TextButton(
                 content=ft.Row(
-                    [ft.Icon(ft.Icons.ADD, size=14, color=ft.Colors.BLUE_300),
-                     ft.Text("Add Custom", size=12, color=ft.Colors.BLUE_300)],
+                    [ft.Icon(ft.Icons.ADD, size=14, color=ft.Colors.GREY_600),
+                     ft.Text("Add Custom", size=12, color=ft.Colors.GREY_600)],
                     spacing=4,
                     tight=True,
                 ),
-                on_click=lambda e: None,   # TODO: Step 5 — AI keyword generation
+                disabled=True,   # TODO: Step 5 — AI keyword generation
+                tooltip="Coming soon",
                 style=ft.ButtonStyle(
                     overlay_color={"": ft.Colors.TRANSPARENT},
                     padding=ft.Padding.all(0),

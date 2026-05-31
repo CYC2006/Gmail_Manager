@@ -235,8 +235,8 @@ def build_api_keys_tab(page: ft.Page) -> SimpleNamespace:
                 if _badge_status_of(b) == "verified" and (f.value or "").strip()
             ]
             save_groq_api_keys(verified_keys)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[KEY] Failed to save verified keys on close: {e}")
 
     # ---- buttons ----
 
