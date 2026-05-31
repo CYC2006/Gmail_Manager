@@ -115,7 +115,7 @@ def build_account_tab(page: ft.Page) -> SimpleNamespace:
             border_radius=6,
             bgcolor=_chip_bg(sel),
             border=_chip_border(sel),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             content=ft.Text(label, size=13, color=_chip_color(sel), text_align=ft.TextAlign.CENTER),
         )
 
