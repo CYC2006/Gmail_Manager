@@ -1404,9 +1404,97 @@ def main(page: ft.Page):
             traceback.print_exc()
             print(f"[ERROR] Fetch failed: {ex}")
 
-    _api_tab     = build_api_keys_tab(page)
-    _pref_tab    = build_preference_tab(page)
-    _account_tab = build_account_tab(page)
+    # ====================
+    # Settings Controller
+    # ====================
+
+    def _build_settings_controller():
+        _api_tab     = build_api_keys_tab(page)
+        _pref_tab    = build_preference_tab(page)
+        _account_tab = build_account_tab(page)
+
+        settings_tab_state = ["preference"]
+
+        def _settings_placeholder(label):
+            return ft.Container(
+                content=ft.Text(f"{label} coming soon…", size=16, color=ft.Colors.GREY_400),
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+            )
+
+        settings_content = ft.Container(expand=True, content=_pref_tab.content)
+
+        _TAB_DEFS = [
+            ("preference",    "Preference",    ft.Icons.TUNE),
+            ("appearance",    "Appearance",    ft.Icons.PALETTE),
+            ("account",       "Account",       ft.Icons.MANAGE_ACCOUNTS),
+            ("notifications", "Notifications", ft.Icons.NOTIFICATIONS),
+            ("api_keys",      "API keys",      ft.Icons.KEY),
+        ]
+
+        def _stab_style(active: bool):
+            return ft.ButtonStyle(
+                color=ft.Colors.WHITE if active else ft.Colors.GREY_500,
+                bgcolor={"": "#3a3a3a" if active else "transparent"},
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                shape=ft.RoundedRectangleBorder(radius=6),
+            )
+
+        _tab_content_map = {
+            "preference": _pref_tab.content,
+            "account":    _account_tab.content,
+            "api_keys":   _api_tab.content,
+        }
+
+        def _settings_tab_btn(label, key, icon):
+            def on_click(e):
+                settings_tab_state[0] = key
+                new_content = _tab_content_map.get(key)
+                settings_content.content = new_content if new_content is not None else _settings_placeholder(label)
+                for k, btn in _stab_btns.items():
+                    btn.style = _stab_style(k == key)
+                page.update()
+            return ft.TextButton(
+                on_click=on_click,
+                style=_stab_style(key == settings_tab_state[0]),
+                expand=True,
+                content=ft.Row(
+                    [
+                        ft.Icon(icon, size=16),
+                        ft.Text(label, size=13),
+                    ],
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+            )
+
+        _stab_btns = {
+            key: _settings_tab_btn(label, key, icon)
+            for key, label, icon in _TAB_DEFS
+        }
+
+        settings_tab_bar = ft.Column(
+            [
+                ft.Container(
+                    content=ft.Row(list(_stab_btns.values()), spacing=4, expand=True),
+                    padding=ft.Padding.only(top=12, bottom=8),
+                ),
+                ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                ft.Container(height=8),
+            ],
+            spacing=0,
+        )
+
+        settings_panel = ft.Column(
+            expand=True,
+            visible=False,
+            spacing=0,
+            controls=[settings_tab_bar, settings_content],
+        )
+
+        return settings_panel, _api_tab, _pref_tab
+
+    settings_panel, _api_tab, _pref_tab = _build_settings_controller()
     page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
@@ -1896,89 +1984,6 @@ def main(page: ft.Page):
             cal_scroll,
         ],
     )
-
-    # ====================
-    # Settings Panel
-    # ====================
-    settings_tab_state = ["preference"]  # active tab — Preference is the default
-
-    def _settings_placeholder(label):
-        return ft.Container(
-            content=ft.Text(f"{label} coming soon…", size=16, color=ft.Colors.GREY_400),
-            expand=True,
-            alignment=ft.Alignment(0, 0),
-        )
-
-    # Default content is Preference (first and most useful tab)
-    settings_content = ft.Container(expand=True, content=_pref_tab.content)
-
-    _TAB_DEFS = [
-        ("preference",    "Preference",   ft.Icons.TUNE),
-        ("appearance",    "Appearance",   ft.Icons.PALETTE),
-        ("account",       "Account",      ft.Icons.MANAGE_ACCOUNTS),
-        ("notifications", "Notifications",ft.Icons.NOTIFICATIONS),
-        ("api_keys",      "API keys",     ft.Icons.KEY),
-    ]
-
-    def _stab_style(active: bool):
-        return ft.ButtonStyle(
-            color=ft.Colors.WHITE if active else ft.Colors.GREY_500,
-            bgcolor={"": "#3a3a3a" if active else "transparent"},
-            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            shape=ft.RoundedRectangleBorder(radius=6),
-        )
-
-    _tab_content_map = {
-        "preference": _pref_tab.content,
-        "account":    _account_tab.content,
-        "api_keys":   _api_tab.content,
-    }
-    def _settings_tab_btn(label, key, icon):
-        def on_click(e):
-            settings_tab_state[0] = key
-            new_content = _tab_content_map.get(key)
-            settings_content.content = new_content if new_content is not None else _settings_placeholder(label)
-            for k, btn in _stab_btns.items():
-                btn.style = _stab_style(k == key)
-            page.update()
-        return ft.TextButton(
-            on_click=on_click,
-            style=_stab_style(key == settings_tab_state[0]),
-            expand=True,
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=16),
-                    ft.Text(label, size=13),
-                ],
-                spacing=6,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-        )
-
-    _stab_btns = {
-        key: _settings_tab_btn(label, key, icon)
-        for key, label, icon in _TAB_DEFS
-    }
-
-    settings_tab_bar = ft.Column(
-        [
-            ft.Container(
-                content=ft.Row(list(_stab_btns.values()), spacing=4, expand=True),
-                padding=ft.Padding.only(top=12, bottom=8),
-            ),
-            ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-            ft.Container(height=8),
-        ],
-        spacing=0,
-    )
-
-    settings_panel = ft.Column(
-        expand=True,
-        visible=False,
-        spacing=0,
-        controls=[settings_tab_bar, settings_content],
-    )
-
 
     # ====================
     # Main Content Area
