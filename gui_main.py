@@ -54,11 +54,10 @@ def main(page: ft.Page):
     # tracks which email ids are currently rendered and their inbox position (_index)
     shown_email_ids = {}
 
-    # list wrapper to allow mutation inside closures without nonlocal
-    current_view = ["inbox"]
+    current_view = "inbox"
 
     # incremented on each refresh — background tasks compare against this to self-cancel
-    fetch_gen = [0]
+    fetch_gen = 0
 
     # serializes UI mutations so background fetch and user actions don't collide
     ui_lock = asyncio.Lock()
@@ -120,7 +119,7 @@ def main(page: ft.Page):
 
     def update_stats_display():
         # for inbox: use live_stats which mirrors the API count adjusted by user actions
-        if current_view[0] == "inbox":
+        if current_view == "inbox":
             stats_row.controls[0].tooltip = "Total inbox"
             stats_row.controls[1].tooltip = "Unread"
             stats_row.controls[2].tooltip = "Starred"
@@ -128,7 +127,7 @@ def main(page: ft.Page):
             unread_text.value  = str(live_stats["unread"])
             starred_text.value = str(live_stats["starred"])
         # for moodle: recount directly from all_emails filtered to moodle only
-        elif current_view[0] == "moodle":
+        elif current_view == "moodle":
             stats_row.controls[0].tooltip = "Total Moodle"
             stats_row.controls[1].tooltip = "Moodle unread"
             stats_row.controls[2].tooltip = "Moodle starred"
@@ -163,23 +162,24 @@ def main(page: ft.Page):
     modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
 
     # incremented each time the modal opens — invalidates in-flight AI tasks from previous open
-    modal_gen = [0]
+    modal_gen = 0
 
     # current active tab: "raw" or "ai"
-    modal_view_state = ["raw"]
+    modal_view_state = "raw"
 
     # category of the currently open email (used by the calendar add button)
-    modal_category = [None]
+    modal_category = None
 
     # data dict of the currently open email (shared with the card so action buttons can mutate it)
     modal_data = [None]
 
     # authenticated Gmail address — fetched once and cached for building web URLs
-    _gmail_user_email = [""]
+    _gmail_user_email = ""
 
     def close_modal(e=None):
+        nonlocal modal_gen
         modal_overlay.visible = False
-        modal_gen[0] += 1  # cancel any pending AI analysis task
+        modal_gen += 1  # cancel any pending AI analysis task
         modal_data[0] = None
         page.update()
 
@@ -214,7 +214,8 @@ def main(page: ft.Page):
     )
 
     def switch_modal_tab(tab):
-        modal_view_state[0]    = tab
+        nonlocal modal_view_state
+        modal_view_state       = tab
         modal_raw_view.visible = (tab == "raw")
         modal_ai_view.visible  = (tab == "ai")
         if tab == "raw":
@@ -249,7 +250,7 @@ def main(page: ft.Page):
 
     def _render_ai_result(result, gen_id, email_id=None, category=None):
         """Rebuild the AI analysis panel. Silently ignored if the modal was closed/reopened."""
-        if gen_id != modal_gen[0]:
+        if gen_id != modal_gen:
             return
 
         modal_ai_scroll.controls.clear()
@@ -411,7 +412,7 @@ def main(page: ft.Page):
 
     async def _analyze_modal_email(email_id, body, gen_id):
         """Background task: serve detail analysis from DB cache or call AI if not cached."""
-        cat = modal_category[0]
+        cat = modal_category
         # check DB cache first — no AI call needed if already analyzed
         cached = await asyncio.to_thread(get_detail_analysis, email_id)
         if cached:
@@ -434,13 +435,14 @@ def main(page: ft.Page):
     async def _open_modal(data):
         """Open the email detail modal for any email data dict.
         Shared by inbox card double-tap and calendar event double-tap."""
+        nonlocal modal_gen, modal_view_state, modal_category, _gmail_user_email
         email_id = data['id']
 
-        modal_gen[0] += 1
-        this_gen = modal_gen[0]
+        modal_gen += 1
+        this_gen = modal_gen
 
         # reset to raw tab, clear previous AI content
-        modal_view_state[0]    = "raw"
+        modal_view_state       = "raw"
         modal_raw_view.visible = True
         modal_ai_view.visible  = False
         _tab_on(modal_raw_tab_icon, modal_raw_tab)
@@ -452,7 +454,7 @@ def main(page: ft.Page):
         modal_sender.value    = data['sender']
         modal_time.value      = data['time']
         modal_body.value      = ""
-        modal_category[0]     = data.get('category')
+        modal_category        = data.get('category')
         modal_data[0]         = data
         # sync star button to the email's current star state
         _starred = data.get('is_starred', False)
@@ -476,11 +478,11 @@ def main(page: ft.Page):
             # fresh service so it doesn't race with background fetch
             modal_service = await asyncio.to_thread(get_gmail_service)
             # fetch user email once and cache it — used to build the correct Gmail web URL
-            if not _gmail_user_email[0]:
+            if not _gmail_user_email:
                 profile = await asyncio.to_thread(
                     modal_service.users().getProfile(userId="me").execute
                 )
-                _gmail_user_email[0] = profile.get("emailAddress", "")
+                _gmail_user_email = profile.get("emailAddress", "")
 
             msg_full = await asyncio.to_thread(
                 modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
@@ -490,7 +492,7 @@ def main(page: ft.Page):
             # and RFC 2822 Message-ID header (guaranteed to point to the exact email)
             headers = msg_full.get("payload", {}).get("headers", [])
             rfc822_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
-            if _gmail_user_email[0] and rfc822_id:
+            if _gmail_user_email and rfc822_id:
                 encoded_id = urllib.parse.quote(rfc822_id, safe="")
                 # AccountChooser selects the right Google account then redirects
                 # to the Gmail search URL — avoids the u/N index problem entirely
@@ -500,7 +502,7 @@ def main(page: ft.Page):
                 )
                 modal_gmail_btn.url = (
                     f"https://accounts.google.com/AccountChooser"
-                    f"?Email={_gmail_user_email[0]}"
+                    f"?Email={_gmail_user_email}"
                     f"&continue={urllib.parse.quote(gmail_search, safe='')}"
                 )
 
@@ -558,13 +560,9 @@ def main(page: ft.Page):
         update_stats_display()
         await _call_with_ssl_retry(toggle_star, data['id'], new_val)
 
-    async def _modal_on_archive(e):
-        data = modal_data[0]
-        if data is None:
-            return
+    async def _do_remove_email(data, also_delete_db=False):
+        """Shared UI-removal logic for both card and modal archive/trash actions."""
         email_id = data['id']
-        close_modal()                    # step 1: modal disappears, user sees inbox
-        await asyncio.sleep(0)           # yield so the close renders before card removal
         async with ui_lock:
             card = data.get('_card_ref')
             if card and card in email_list_view.controls:
@@ -578,33 +576,28 @@ def main(page: ft.Page):
             if data.get('is_starred'):
                 live_stats["starred"] = max(0, live_stats["starred"] - 1)
             update_stats_display()
-        await asyncio.sleep(0)           # let Flutter flush the render before background work
-        await _call_with_ssl_retry(archive_email, email_id)
+        await asyncio.sleep(0)           # let Flutter flush before background work
+        if also_delete_db:
+            await asyncio.to_thread(delete_analysis, email_id)
+            await asyncio.to_thread(delete_events_by_email_id, email_id)
+
+    async def _modal_on_archive(e):
+        data = modal_data[0]
+        if data is None:
+            return
+        close_modal()
+        await asyncio.sleep(0)           # yield so the close renders before card removal
+        await _do_remove_email(data, also_delete_db=False)
+        await _call_with_ssl_retry(archive_email, data['id'])
 
     async def _modal_on_trash(e):
         data = modal_data[0]
         if data is None:
             return
-        email_id = data['id']
-        close_modal()                    # step 1: modal disappears, user sees inbox
+        close_modal()
         await asyncio.sleep(0)           # yield so the close renders before card removal
-        async with ui_lock:
-            card = data.get('_card_ref')
-            if card and card in email_list_view.controls:
-                email_list_view.controls.remove(card)
-            shown_email_ids.pop(email_id, None)
-            all_emails[:] = [item for item in all_emails if item['id'] != email_id]
-            fill_next_email()
-            live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-            if data.get('is_unread'):
-                live_stats["unread"] = max(0, live_stats["unread"] - 1)
-            if data.get('is_starred'):
-                live_stats["starred"] = max(0, live_stats["starred"] - 1)
-            update_stats_display()
-        await asyncio.sleep(0)           # let Flutter flush the render before background work
-        await asyncio.to_thread(delete_analysis, email_id)
-        await asyncio.to_thread(delete_events_by_email_id, email_id)
-        await _call_with_ssl_retry(trash_email, email_id)
+        await _do_remove_email(data, also_delete_db=True)
+        await _call_with_ssl_retry(trash_email, data['id'])
 
     modal_star_btn.on_click    = lambda e: page.run_task(_modal_on_star,    e)
     modal_archive_btn.on_click = lambda e: page.run_task(_modal_on_archive, e)
@@ -774,7 +767,7 @@ def main(page: ft.Page):
         async def on_mark_read(e):
             # update card background color immediately before the API call
             if data.get('is_unread'):
-                e.control.parent.parent.parent.parent.bgcolor = "#2a2a2a"
+                card_inner.bgcolor = "#2a2a2a"
                 data['is_unread'] = False
                 live_stats["unread"] = max(0, live_stats["unread"] - 1)
                 update_stats_display()
@@ -799,40 +792,11 @@ def main(page: ft.Page):
             await _call_with_ssl_retry(toggle_star, email_id, new_val)
 
         async def on_archive(e, card_ref):
-            async with ui_lock:
-                # remove card from view and buffer, then fill the empty slot
-                email_list_view.controls.remove(card_ref)
-                shown_email_ids.pop(email_id, None)
-                all_emails[:] = [item for item in all_emails if item['id'] != email_id]
-                fill_next_email()
-                # adjust counts inside the lock so page.update() is called exactly once
-                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-                if data.get('is_unread'):
-                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
-                if data.get('is_starred'):
-                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
-                update_stats_display()
-            await asyncio.sleep(0)           # let Flutter flush before background work
+            await _do_remove_email(data, also_delete_db=False)
             await _call_with_ssl_retry(archive_email, email_id)
 
         async def on_trash(e, card_ref):
-            async with ui_lock:
-                # remove card from view and buffer, then fill the empty slot
-                email_list_view.controls.remove(card_ref)
-                shown_email_ids.pop(email_id, None)
-                all_emails[:] = [item for item in all_emails if item['id'] != email_id]
-                fill_next_email()
-                # adjust counts inside the lock so page.update() is called exactly once
-                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-                if data.get('is_unread'):
-                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
-                if data.get('is_starred'):
-                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
-                update_stats_display()
-            await asyncio.sleep(0)           # let Flutter flush before background work
-            # remove from local cache and calendar before trashing on Gmail
-            await asyncio.to_thread(delete_analysis, email_id)
-            await asyncio.to_thread(delete_events_by_email_id, email_id)
+            await _do_remove_email(data, also_delete_db=True)
             await _call_with_ssl_retry(trash_email, email_id)
 
         async def on_tap(e):
@@ -970,7 +934,7 @@ def main(page: ft.Page):
 
     # returns True if this email belongs in the currently active sidebar view
     def _matches_view(data) -> bool:
-        if current_view[0] == "moodle":
+        if current_view == "moodle":
             return is_moodle(data)
         return True  # inbox shows all emails
 
@@ -999,7 +963,8 @@ def main(page: ft.Page):
             return
 
     def switch_view(view: str):
-        current_view[0] = view
+        nonlocal current_view
+        current_view = view
 
         # highlight the selected sidebar tile
         for tile, name in sidebar_tiles:
@@ -1076,7 +1041,7 @@ def main(page: ft.Page):
             gen = fetch_and_analyze_emails(svc["service"], page_token=token, page_offset=(page_num - 1) * PAGE_SIZE)
             while True:
                 # abort if the user clicked refresh while this task was running
-                if fetch_gen[0] != gen_id:
+                if fetch_gen != gen_id:
                     return
                 email_data = await asyncio.to_thread(get_next, gen)
                 if email_data is None:
@@ -1097,7 +1062,7 @@ def main(page: ft.Page):
             print(f"[ERROR] Background fetch failed: {ex}")
 
     async def fetch_task():
-        this_gen = fetch_gen[0]
+        this_gen = fetch_gen
         try:
             # build Gmail service only on the first run; reuse afterwards
             if not svc["service"]:
@@ -1155,14 +1120,14 @@ def main(page: ft.Page):
                     user_email_text.value = "Offline Mode"
 
             # guard: another refresh may have fired while we were initializing the service
-            if fetch_gen[0] != this_gen:
+            if fetch_gen != this_gen:
                 return
 
             # update the stats badges (inbox total / unread / starred)
             stats = await asyncio.to_thread(get_inbox_stats, svc["service"])
 
             # guard: user may have clicked refresh while stats were loading
-            if fetch_gen[0] != this_gen:
+            if fetch_gen != this_gen:
                 return
 
             live_stats["inbox"]   = stats["inbox"]
@@ -1181,13 +1146,13 @@ def main(page: ft.Page):
             gen = fetch_and_analyze_emails(svc["service"])
             while True:
                 # guard: abort immediately if the user clicked refresh again
-                if fetch_gen[0] != this_gen:
+                if fetch_gen != this_gen:
                     return
                 email_data = await asyncio.to_thread(get_next, gen)
                 if email_data is None:
                     break
                 # re-check after the blocking call — refresh may have fired during get_next
-                if fetch_gen[0] != this_gen:
+                if fetch_gen != this_gen:
                     return
                 # page 1 done — hand off remaining pages to a background task
                 if "_next_page_token" in email_data:
@@ -1209,8 +1174,9 @@ def main(page: ft.Page):
     page.on_close = lambda e: _api_tab.save_verified_on_close()
 
     def on_refresh_click(e):
+        nonlocal fetch_gen
         # increment gen id — background tasks compare against this and self-cancel
-        fetch_gen[0] += 1
+        fetch_gen += 1
         # clear all state immediately so the UI is blank the instant the button is clicked,
         # not after fetch_task has had a chance to do it asynchronously
         all_emails.clear()

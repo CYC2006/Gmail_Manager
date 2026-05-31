@@ -1,6 +1,7 @@
 import json
 import os
 import re as _re
+import threading
 import time
 from groq import Groq
 from dotenv import load_dotenv
@@ -44,6 +45,7 @@ def _load_keys_with_dev_fallback() -> list[str]:
 # Multi-key support — reloaded on demand via reload_keys()
 _AVAILABLE_KEYS: list[str] = _load_keys_with_dev_fallback()
 _current_key_idx = 0
+_key_lock = threading.Lock()  # guards _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED, LAST_API_CALL_TIME
 
 
 def reload_keys():
@@ -52,10 +54,12 @@ def reload_keys():
     Does NOT fall back to .env so unverified keys can never slip in at runtime.
     """
     global _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED
-    _AVAILABLE_KEYS  = _load_verified_keys()
-    _current_key_idx = 0
-    TPD_EXHAUSTED    = False
-    print(f"[KEY] Reloaded {len(_AVAILABLE_KEYS)} verified API key(s) from config.")
+    new_keys = _load_verified_keys()
+    with _key_lock:
+        _AVAILABLE_KEYS  = new_keys
+        _current_key_idx = 0
+        TPD_EXHAUSTED    = False
+    print(f"[KEY] Reloaded {len(new_keys)} verified API key(s) from config.")
 
 
 def _get_client() -> Groq:
@@ -67,12 +71,13 @@ def _get_client() -> Groq:
 def _try_switch_key() -> bool:
     """Switch to the next available key. Returns True if switched, False if all keys exhausted."""
     global _current_key_idx, TPD_EXHAUSTED
-    next_idx = _current_key_idx + 1
-    if next_idx < len(_AVAILABLE_KEYS):
-        _current_key_idx = next_idx
-        print(f"[KEY] Switched to API key {_current_key_idx + 1}")
-        return True
-    TPD_EXHAUSTED = True
+    with _key_lock:
+        next_idx = _current_key_idx + 1
+        if next_idx < len(_AVAILABLE_KEYS):
+            _current_key_idx = next_idx
+            print(f"[KEY] Switched to API key {_current_key_idx + 1}")
+            return True
+        TPD_EXHAUSTED = True
     print(f"[KEY] All API key(s) exhausted — stopping AI analysis.")
     return False
 
@@ -143,22 +148,34 @@ def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
     Returns the raw response text, or None on any failure or when TPD exhausted."""
     global LAST_API_CALL_TIME
 
-    if TPD_EXHAUSTED:
-        return None
+    # Check TPD and compute rate-limit wait atomically
+    with _key_lock:
+        if TPD_EXHAUSTED:
+            return None
+        elapsed = time.time() - LAST_API_CALL_TIME
+        wait = MIN_INTERVAL - elapsed
+        n_keys = len(_AVAILABLE_KEYS)
 
-    elapsed = time.time() - LAST_API_CALL_TIME
-    if elapsed < MIN_INTERVAL:
-        time.sleep(MIN_INTERVAL - elapsed)
+    # Sleep outside the lock so other threads are not blocked
+    if wait > 0:
+        time.sleep(wait)
 
-    for _ in range(len(_AVAILABLE_KEYS)):
+    for _ in range(n_keys):
         try:
-            response = _get_client().chat.completions.create(
+            # Snapshot the current key under the lock, then release before the network call
+            with _key_lock:
+                if TPD_EXHAUSTED:
+                    break
+                client = Groq(api_key=_AVAILABLE_KEYS[_current_key_idx])
+
+            response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
                 temperature=0.1,
                 max_tokens=max_tokens,
             )
-            LAST_API_CALL_TIME = time.time()
+            with _key_lock:
+                LAST_API_CALL_TIME = time.time()
             return response.choices[0].message.content.strip()
 
         except Exception as e:
