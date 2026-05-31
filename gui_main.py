@@ -863,251 +863,261 @@ def main(page: ft.Page):
     ) = _build_modal_controller(fill_next_fn)
 
 
-    # returns True if the email was sent from Moodle
-    def is_moodle(data) -> bool:
-        return "moodle" in data['sender'].lower()
-
-    # maps AI category labels to badge background colors
-    def get_tag_color(category: str):
-        color_map = {
-            DEADLINE:     ft.Colors.ORANGE_700,
-            HW_RELEASE:   ft.Colors.BLUE_GREY_600,
-            HW_CONFIRM:   ft.Colors.GREEN_700,
-            GRADE:        ft.Colors.BLUE_700,
-            CANCEL:       ft.Colors.PURPLE_700,
-            EXAM_RELATED: ft.Colors.RED_700,
-            IMPORTANT:    ft.Colors.RED_700,
-            LECTURE:      ft.Colors.TEAL_700,
-            ANNOUNCE:     ft.Colors.BLUE_400,
-            ADS:          ft.Colors.BROWN_500,
-            EXTERNAL:     ft.Colors.INDIGO_500,
-            "Analysis Failed": ft.Colors.RED_900,
-        }
-        for key, color in color_map.items():
-            if key in category:
-                return color
-        return ft.Colors.GREY_600
-
     # ====================
-    # Email Card Builder
+    # Email Card Factory
     # ====================
 
-    def create_email_card(data, card_mode="default"):
-        # unread emails get a lighter background to stand out
-        card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
-        email_id = data['id']
+    def _build_email_card_factory():
+        # returns True if the email was sent from Moodle
+        def is_moodle(data) -> bool:
+            return "moodle" in data['sender'].lower()
 
-        # list wrapper so the star handler can toggle the value inside a closure
-        is_starred_state = [data.get('is_starred', False)]
+        # maps AI category labels to badge background colors
+        def get_tag_color(category: str):
+            color_map = {
+                DEADLINE:     ft.Colors.ORANGE_700,
+                HW_RELEASE:   ft.Colors.BLUE_GREY_600,
+                HW_CONFIRM:   ft.Colors.GREEN_700,
+                GRADE:        ft.Colors.BLUE_700,
+                CANCEL:       ft.Colors.PURPLE_700,
+                EXAM_RELATED: ft.Colors.RED_700,
+                IMPORTANT:    ft.Colors.RED_700,
+                LECTURE:      ft.Colors.TEAL_700,
+                ANNOUNCE:     ft.Colors.BLUE_400,
+                ADS:          ft.Colors.BROWN_500,
+                EXTERNAL:     ft.Colors.INDIGO_500,
+                "Analysis Failed": ft.Colors.RED_900,
+            }
+            for key, color in color_map.items():
+                if key in category:
+                    return color
+            return ft.Colors.GREY_600
 
-        # list wrapper so archive/trash lambdas can reference card before it's created
-        card_ref = [None]
+        # ====================
+        # Email Card Builder
+        # ====================
 
-        # --------------------
-        # Card Action Handlers
-        # --------------------
+        def create_email_card(data, card_mode="default"):
+            # unread emails get a lighter background to stand out
+            card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
+            email_id = data['id']
 
-        async def on_mark_read(e):
-            # update card background color immediately before the API call
-            if data.get('is_unread'):
-                card_inner.bgcolor = "#2a2a2a"
-                data['is_unread'] = False
-                live_stats["unread"]     = max(0, live_stats["unread"] - 1)
-                all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
+            # list wrapper so the star handler can toggle the value inside a closure
+            is_starred_state = [data.get('is_starred', False)]
+
+            # list wrapper so archive/trash lambdas can reference card before it's created
+            card_ref = [None]
+
+            # --------------------
+            # Card Action Handlers
+            # --------------------
+
+            async def on_mark_read(e):
+                # update card background color immediately before the API call
+                if data.get('is_unread'):
+                    card_inner.bgcolor = "#2a2a2a"
+                    data['is_unread'] = False
+                    live_stats["unread"]     = max(0, live_stats["unread"] - 1)
+                    all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
+                    update_stats_display()
+                await _call_with_ssl_retry(mark_as_read, email_id)
+
+            async def on_star(e, card_ref):
+                # derive new value from data (authoritative) so modal sync cannot desync this
+                new_val = not data.get('is_starred', False)
+                is_starred_state[0] = new_val
+                data['is_starred'] = new_val
+                e.control.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+                e.control.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+                if new_val:
+                    live_stats["starred"]     += 1
+                    all_mail_stats["starred"] += 1
+                else:
+                    live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+                    all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
+                # sync modal star button if this card's modal is currently open
+                if modal_overlay.visible and modal_data[0] is not None and modal_data[0]['id'] == email_id:
+                    modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+                    modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
                 update_stats_display()
-            await _call_with_ssl_retry(mark_as_read, email_id)
+                await _call_with_ssl_retry(toggle_star, email_id, new_val)
 
-        async def on_star(e, card_ref):
-            # derive new value from data (authoritative) so modal sync cannot desync this
-            new_val = not data.get('is_starred', False)
-            is_starred_state[0] = new_val
-            data['is_starred'] = new_val
-            e.control.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
-            e.control.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
-            if new_val:
-                live_stats["starred"]     += 1
-                all_mail_stats["starred"] += 1
+            async def on_archive(e, card_ref):
+                await _do_archive_email(data)
+                await _call_with_ssl_retry(archive_email, email_id)
+
+            async def on_trash(e, card_ref):
+                await _do_trash_email(data)
+                await _call_with_ssl_retry(trash_email, email_id)
+
+            async def on_restore(e, card_ref):
+                await _do_restore_email(data)
+                await _call_with_ssl_retry(restore_email, email_id)
+
+            async def on_permanent_delete(e, card_ref):
+                await _do_permanent_delete_email(data)
+                await _call_with_ssl_retry(permanent_delete_email, email_id)
+
+            async def on_tap(e):
+                # update card read visual immediately (card_inner is local to this closure)
+                if data.get('is_unread'):
+                    card_inner.bgcolor = "#2a2a2a"
+                await _open_modal(data)
+
+            # --------------------
+            # Card Layout
+            # --------------------
+
+            # Moodle emails show an icon + "Moodle" label instead of the sender name
+            if is_moodle(data):
+                title_control = ft.Row(
+                    controls=[
+                        ft.Icon(ft.Icons.SCHOOL, size=20, color=ft.Colors.ORANGE_300),
+                        ft.Text(
+                            " Moodle",
+                            weight=ft.FontWeight.BOLD,
+                            size=18,
+                            color=ft.Colors.ORANGE_300,
+                        ),
+                    ],
+                    spacing=4,
+                )
             else:
-                live_stats["starred"]     = max(0, live_stats["starred"] - 1)
-                all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
-            # sync modal star button if this card's modal is currently open
-            if modal_overlay.visible and modal_data[0] is not None and modal_data[0]['id'] == email_id:
-                modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
-                modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
-            update_stats_display()
-            await _call_with_ssl_retry(toggle_star, email_id, new_val)
+                title_control = ft.Text(
+                    data['sender'],
+                    weight=ft.FontWeight.BOLD,
+                    size=18,
+                    color=ft.Colors.WHITE,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    max_lines=1,
+                )
 
-        async def on_archive(e, card_ref):
-            await _do_archive_email(data)
-            await _call_with_ssl_retry(archive_email, email_id)
+            # highlight emails whose content matches a saved preference keyword
+            _matched = data.get('matched_prefs') or []
+            _pref_border = ft.Border.all(2, ft.Colors.AMBER_400) if _matched else None
 
-        async def on_trash(e, card_ref):
-            await _do_trash_email(data)
-            await _call_with_ssl_retry(trash_email, email_id)
-
-        async def on_restore(e, card_ref):
-            await _do_restore_email(data)
-            await _call_with_ssl_retry(restore_email, email_id)
-
-        async def on_permanent_delete(e, card_ref):
-            await _do_permanent_delete_email(data)
-            await _call_with_ssl_retry(permanent_delete_email, email_id)
-
-        async def on_tap(e):
-            # update card read visual immediately (card_inner is local to this closure)
-            if data.get('is_unread'):
-                card_inner.bgcolor = "#2a2a2a"
-            await _open_modal(data)
-
-        # --------------------
-        # Card Layout
-        # --------------------
-
-        # Moodle emails show an icon + "Moodle" label instead of the sender name
-        if is_moodle(data):
-            title_control = ft.Row(
-                controls=[
-                    ft.Icon(ft.Icons.SCHOOL, size=20, color=ft.Colors.ORANGE_300),
-                    ft.Text(
-                        " Moodle",
-                        weight=ft.FontWeight.BOLD,
-                        size=18,
-                        color=ft.Colors.ORANGE_300,
-                    ),
-                ],
-                spacing=4,
+            # extracted so the modal can sync its icon via data['_star_btn_ref']
+            _card_star_btn = ft.IconButton(
+                icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
+                icon_size=18,
+                padding=ft.Padding.all(2),
+                icon_color=ft.Colors.YELLOW_600,
+                tooltip="Star",
+                on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
             )
-        else:
-            title_control = ft.Text(
-                data['sender'],
-                weight=ft.FontWeight.BOLD,
-                size=18,
-                color=ft.Colors.WHITE,
-                overflow=ft.TextOverflow.ELLIPSIS,
-                max_lines=1,
-            )
+            data['_star_btn_ref'] = _card_star_btn
 
-        # highlight emails whose content matches a saved preference keyword
-        _matched = data.get('matched_prefs') or []
-        _pref_border = ft.Border.all(2, ft.Colors.AMBER_400) if _matched else None
-
-        # extracted so the modal can sync its icon via data['_star_btn_ref']
-        _card_star_btn = ft.IconButton(
-            icon=ft.Icons.STAR if is_starred_state[0] else ft.Icons.STAR_BORDER,
-            icon_size=18,
-            padding=ft.Padding.all(2),
-            icon_color=ft.Colors.YELLOW_600,
-            tooltip="Star",
-            on_click=lambda e: page.run_task(on_star, e, card_ref[0]),
-        )
-        data['_star_btn_ref'] = _card_star_btn
-
-        # stored as a named variable so on_double_tap can update its bgcolor
-        card_inner = ft.Container(
-            bgcolor=card_bgcolor,
-            padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
-            border_radius=10,
-            border=_pref_border,
-            content=ft.Column(
-                spacing=8,
-                controls=[
-                    # top row: sender/title on the left, time + action buttons on the right
-                    ft.Row(
-                        controls=[
-                            ft.Container(content=title_control, expand=True),
-                            ft.Row(
-                                controls=(
-                                    # ── Trash view: Restore + Permanent Delete ──
-                                    [
-                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                        ft.IconButton(
-                                            icon=ft.Icons.RESTORE_FROM_TRASH,
-                                            icon_size=18,
-                                            padding=ft.Padding.all(2),
-                                            icon_color=ft.Colors.GREEN_400,
-                                            tooltip="Restore to Inbox",
-                                            on_click=lambda e: page.run_task(on_restore, e, card_ref[0]),
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.DELETE_FOREVER,
-                                            icon_size=18,
-                                            padding=ft.Padding.all(2),
-                                            icon_color=ft.Colors.RED_400,
-                                            tooltip="Permanent delete",
-                                            on_click=lambda e: page.run_task(on_permanent_delete, e, card_ref[0]),
-                                        ),
-                                    ] if card_mode == "trash" else
-                                    # ── Sent view: read-only, time only ──
-                                    [
-                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                    ] if card_mode == "sent" else
-                                    # ── Default (Inbox / All Mail / Moodle) ──
-                                    [
-                                        ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
-                                        ft.IconButton(
-                                            icon=ft.Icons.MARK_EMAIL_READ,
-                                            icon_size=18,
-                                            padding=ft.Padding.all(2),
-                                            tooltip="Mark as read",
-                                            on_click=lambda e: page.run_task(on_mark_read, e),
-                                        ),
-                                        _card_star_btn,
-                                        ft.IconButton(
-                                            icon=ft.Icons.ARCHIVE,
-                                            icon_size=18,
-                                            padding=ft.Padding.all(2),
-                                            icon_color=ft.Colors.GREEN_400,
-                                            tooltip="Archive",
-                                            on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
-                                        ),
-                                        ft.IconButton(
-                                            icon=ft.Icons.DELETE,
-                                            icon_size=18,
-                                            padding=ft.Padding.all(2),
-                                            icon_color=ft.Colors.RED_400,
-                                            tooltip="Delete",
-                                            on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
-                                        ),
-                                    ]
+            # stored as a named variable so on_double_tap can update its bgcolor
+            card_inner = ft.Container(
+                bgcolor=card_bgcolor,
+                padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
+                border_radius=10,
+                border=_pref_border,
+                content=ft.Column(
+                    spacing=8,
+                    controls=[
+                        # top row: sender/title on the left, time + action buttons on the right
+                        ft.Row(
+                            controls=[
+                                ft.Container(content=title_control, expand=True),
+                                ft.Row(
+                                    controls=(
+                                        # ── Trash view: Restore + Permanent Delete ──
+                                        [
+                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                            ft.IconButton(
+                                                icon=ft.Icons.RESTORE_FROM_TRASH,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.GREEN_400,
+                                                tooltip="Restore to Inbox",
+                                                on_click=lambda e: page.run_task(on_restore, e, card_ref[0]),
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.Icons.DELETE_FOREVER,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.RED_400,
+                                                tooltip="Permanent delete",
+                                                on_click=lambda e: page.run_task(on_permanent_delete, e, card_ref[0]),
+                                            ),
+                                        ] if card_mode == "trash" else
+                                        # ── Sent view: read-only, time only ──
+                                        [
+                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                        ] if card_mode == "sent" else
+                                        # ── Default (Inbox / All Mail / Moodle) ──
+                                        [
+                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                            ft.IconButton(
+                                                icon=ft.Icons.MARK_EMAIL_READ,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                tooltip="Mark as read",
+                                                on_click=lambda e: page.run_task(on_mark_read, e),
+                                            ),
+                                            _card_star_btn,
+                                            ft.IconButton(
+                                                icon=ft.Icons.ARCHIVE,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.GREEN_400,
+                                                tooltip="Archive",
+                                                on_click=lambda e: page.run_task(on_archive, e, card_ref[0]),
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.Icons.DELETE,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.RED_400,
+                                                tooltip="Delete",
+                                                on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
+                                            ),
+                                        ]
+                                    ),
+                                    spacing=0,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
-                                spacing=0,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    # bottom row: colored category badge + raw email subject
-                    ft.Row(
-                        controls=[
-                            ft.Container(
-                                content=ft.Text(data['category'], size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
-                                bgcolor=get_tag_color(data['category']),
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                border_radius=5,
-                            ),
-                            ft.Text(data['subject'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
-                        ],
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ],
-            ),
-        )
-        card = ft.Card(
-            margin=ft.Margin.symmetric(horizontal=10, vertical=3),
-            content=card_inner,
-        )
-        gesture = ft.GestureDetector(
-            on_tap=lambda e: page.run_task(on_tap, e),
-            content=card,
-        )
-        # fill the forward reference with the outermost widget —
-        # email_list_view holds GestureDetectors, not Cards
-        card_ref[0] = gesture
-        # store in data so modal action buttons can remove the card without a lookup
-        data['_card_ref'] = gesture
-        return gesture
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        # bottom row: colored category badge + raw email subject
+                        ft.Row(
+                            controls=[
+                                ft.Container(
+                                    content=ft.Text(data['category'], size=13, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
+                                    bgcolor=get_tag_color(data['category']),
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                    border_radius=5,
+                                ),
+                                ft.Text(data['subject'], size=13, expand=True, color="#bbbbbb", overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                ),
+            )
+            card = ft.Card(
+                margin=ft.Margin.symmetric(horizontal=10, vertical=3),
+                content=card_inner,
+            )
+            gesture = ft.GestureDetector(
+                on_tap=lambda e: page.run_task(on_tap, e),
+                content=card,
+            )
+            # fill the forward reference with the outermost widget —
+            # email_list_view holds GestureDetectors, not Cards
+            card_ref[0] = gesture
+            # store in data so modal action buttons can remove the card without a lookup
+            data['_card_ref'] = gesture
+            return gesture
+
+        return create_email_card
+
+    create_email_card = _build_email_card_factory()
+
 
     # ====================
     # View Management
