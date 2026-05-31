@@ -171,678 +171,697 @@ def main(page: ft.Page):
     update_stats_display, stats_row = _build_stats_bar()
 
     # ====================
-    # Email Detail Modal
+    # Modal Controller
     # ====================
 
-    # header text nodes populated when the user double-taps a card
-    modal_subject = ft.Text("", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True)
-    modal_sender  = ft.Text("", size=16, color=ft.Colors.BLUE_GREY_300)
-    modal_time    = ft.Text("", size=16, color=ft.Colors.OUTLINE)
+    def _build_modal_controller(fill_next_fn):
+        # ====================
+        # Email Detail Modal
+        # ====================
 
-    def _on_gmail_btn_click(e):
-        print(f"[GMAIL URL] {modal_gmail_btn.url}")
+        # header text nodes populated when the user double-taps a card
+        modal_subject = ft.Text("", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, selectable=True)
+        modal_sender  = ft.Text("", size=16, color=ft.Colors.BLUE_GREY_300)
+        modal_time    = ft.Text("", size=16, color=ft.Colors.OUTLINE)
 
-    modal_gmail_btn = ft.IconButton(
-        icon=ft.Icons.OPEN_IN_NEW,
-        icon_color=ft.Colors.BLUE_400,
-        icon_size=22,
-        tooltip="Open in Gmail",
-        url="",
-        on_click=_on_gmail_btn_click,
-    )
+        def _on_gmail_btn_click(e):
+            print(f"[GMAIL URL] {modal_gmail_btn.url}")
 
-    # raw content text node
-    modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
+        modal_gmail_btn = ft.IconButton(
+            icon=ft.Icons.OPEN_IN_NEW,
+            icon_color=ft.Colors.BLUE_400,
+            icon_size=22,
+            tooltip="Open in Gmail",
+            url="",
+            on_click=_on_gmail_btn_click,
+        )
 
-    # incremented each time the modal opens — invalidates in-flight AI tasks from previous open
-    modal_gen = 0
+        # raw content text node
+        modal_body = ft.Text("", size=13, color="#dddddd", selectable=True)
 
-    # current active tab: "raw" or "ai"
-    modal_view_state = "raw"
+        # incremented each time the modal opens — invalidates in-flight AI tasks from previous open
+        modal_gen = 0
 
-    # category of the currently open email (used by the calendar add button)
-    modal_category = None
+        # current active tab: "raw" or "ai"
+        modal_view_state = "raw"
 
-    # data dict of the currently open email (shared with the card so action buttons can mutate it)
-    modal_data = [None]
+        # category of the currently open email (used by the calendar add button)
+        modal_category = None
 
-    # authenticated Gmail address — fetched once and cached for building web URLs
-    _gmail_user_email = ""
+        # data dict of the currently open email (shared with the card so action buttons can mutate it)
+        modal_data = [None]
 
-    def close_modal(e=None):
-        nonlocal modal_gen
-        modal_overlay.visible = False
-        modal_gen += 1  # cancel any pending AI analysis task
-        modal_data[0] = None
-        page.update()
+        # authenticated Gmail address — fetched once and cached for building web URLs
+        _gmail_user_email = ""
 
-    # ── tab button styling helpers ──
-    def _tab_on(icon_widget, container):
-        container.bgcolor = ft.Colors.BLUE_700
-        icon_widget.color = ft.Colors.WHITE
+        def close_modal(e=None):
+            nonlocal modal_gen
+            modal_overlay.visible = False
+            modal_gen += 1  # cancel any pending AI analysis task
+            modal_data[0] = None
+            page.update()
 
-    def _tab_off(icon_widget, container):
-        container.bgcolor = None
-        icon_widget.color = ft.Colors.BLUE_GREY_400
+        # ── tab button styling helpers ──
+        def _tab_on(icon_widget, container):
+            container.bgcolor = ft.Colors.BLUE_700
+            icon_widget.color = ft.Colors.WHITE
 
-    # tab button icon widgets (kept as references so color can be toggled)
-    modal_raw_tab_icon = ft.Icon(ft.Icons.ARTICLE,       size=18, color=ft.Colors.WHITE)
-    modal_ai_tab_icon  = ft.Icon(ft.Icons.AUTO_AWESOME,  size=18, color=ft.Colors.BLUE_GREY_400)
+        def _tab_off(icon_widget, container):
+            container.bgcolor = None
+            icon_widget.color = ft.Colors.BLUE_GREY_400
 
-    modal_raw_tab = ft.Container(
-        content=modal_raw_tab_icon,
-        padding=ft.Padding.all(8),
-        border_radius=6,
-        bgcolor=ft.Colors.BLUE_700,
-        tooltip="Raw content",
-        on_click=lambda e: switch_modal_tab("raw"),
-    )
-    modal_ai_tab = ft.Container(
-        content=modal_ai_tab_icon,
-        padding=ft.Padding.all(8),
-        border_radius=6,
-        bgcolor=None,
-        tooltip="AI analysis",
-        on_click=lambda e: switch_modal_tab("ai"),
-    )
+        # tab button icon widgets (kept as references so color can be toggled)
+        modal_raw_tab_icon = ft.Icon(ft.Icons.ARTICLE,       size=18, color=ft.Colors.WHITE)
+        modal_ai_tab_icon  = ft.Icon(ft.Icons.AUTO_AWESOME,  size=18, color=ft.Colors.BLUE_GREY_400)
 
-    def switch_modal_tab(tab):
-        nonlocal modal_view_state
-        modal_view_state       = tab
-        modal_raw_view.visible = (tab == "raw")
-        modal_ai_view.visible  = (tab == "ai")
-        if tab == "raw":
-            _tab_on(modal_raw_tab_icon, modal_raw_tab)
-            _tab_off(modal_ai_tab_icon, modal_ai_tab)
-        else:
-            _tab_off(modal_raw_tab_icon, modal_raw_tab)
-            _tab_on(modal_ai_tab_icon, modal_ai_tab)
-        page.update()
+        modal_raw_tab = ft.Container(
+            content=modal_raw_tab_icon,
+            padding=ft.Padding.all(8),
+            border_radius=6,
+            bgcolor=ft.Colors.BLUE_700,
+            tooltip="Raw content",
+            on_click=lambda e: switch_modal_tab("raw"),
+        )
+        modal_ai_tab = ft.Container(
+            content=modal_ai_tab_icon,
+            padding=ft.Padding.all(8),
+            border_radius=6,
+            bgcolor=None,
+            tooltip="AI analysis",
+            on_click=lambda e: switch_modal_tab("ai"),
+        )
 
-    # ── raw content view ──
-    # right padding keeps text clear of the scrollbar
-    modal_raw_view = ft.Container(
-        expand=True,
-        visible=True,
-        content=ft.ListView(
-            controls=[modal_body],
+        def switch_modal_tab(tab):
+            nonlocal modal_view_state
+            modal_view_state       = tab
+            modal_raw_view.visible = (tab == "raw")
+            modal_ai_view.visible  = (tab == "ai")
+            if tab == "raw":
+                _tab_on(modal_raw_tab_icon, modal_raw_tab)
+                _tab_off(modal_ai_tab_icon, modal_ai_tab)
+            else:
+                _tab_off(modal_raw_tab_icon, modal_raw_tab)
+                _tab_on(modal_ai_tab_icon, modal_ai_tab)
+            page.update()
+
+        # ── raw content view ──
+        # right padding keeps text clear of the scrollbar
+        modal_raw_view = ft.Container(
             expand=True,
-            padding=ft.Padding.only(right=14),
-            spacing=8,
-        ),
-    )
+            visible=True,
+            content=ft.ListView(
+                controls=[modal_body],
+                expand=True,
+                padding=ft.Padding.only(right=14),
+                spacing=8,
+            ),
+        )
 
-    # ── AI analysis view ──
-    # modal_ai_scroll is populated dynamically by _render_ai_result
-    modal_ai_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=14), spacing=0)
-    modal_ai_view = ft.Container(
-        expand=True,
-        visible=False,
-        content=modal_ai_scroll,
-    )
+        # ── AI analysis view ──
+        # modal_ai_scroll is populated dynamically by _render_ai_result
+        modal_ai_scroll = ft.ListView(expand=True, padding=ft.Padding.only(right=14), spacing=0)
+        modal_ai_view = ft.Container(
+            expand=True,
+            visible=False,
+            content=modal_ai_scroll,
+        )
 
-    def _render_ai_result(result, gen_id, email_id=None, category=None):
-        """Rebuild the AI analysis panel. Silently ignored if the modal was closed/reopened."""
-        if gen_id != modal_gen:
-            return
+        def _render_ai_result(result, gen_id, email_id=None, category=None):
+            """Rebuild the AI analysis panel. Silently ignored if the modal was closed/reopened."""
+            if gen_id != modal_gen:
+                return
 
-        modal_ai_scroll.controls.clear()
+            modal_ai_scroll.controls.clear()
 
-        # ── still loading ──
-        if result is None:
-            modal_ai_scroll.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.ProgressRing(width=16, height=16, stroke_width=2),
-                        ft.Text("Analyzing...", size=13, color=ft.Colors.OUTLINE),
-                    ], spacing=8),
-                    padding=ft.Padding.only(top=16),
-                )
-            )
-            if modal_overlay.visible:
-                page.update()
-            return
-
-        # ── analysis failed ──
-        if result == "error":
-            modal_ai_scroll.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=ft.Colors.RED_400),
-                        ft.Text("AI analysis failed. Please try again.", size=13, color=ft.Colors.RED_400),
-                    ], spacing=8),
-                    padding=ft.Padding.only(top=16),
-                )
-            )
-            if modal_overlay.visible:
-                page.update()
-            return
-
-        # ── helper: section label with icon ──
-        def section_header(icon, label):
-            return ft.Container(
-                content=ft.Row([
-                    ft.Icon(icon, size=15, color=ft.Colors.BLUE_GREY_300),
-                    ft.Text(label, size=15, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
-                ], spacing=6),
-                padding=ft.Padding.only(top=16, bottom=6),
-            )
-
-        # 摘要
-        if result.get("summary"):
-            modal_ai_scroll.controls += [
-                section_header(ft.Icons.SUMMARIZE, "Summary"),
-                ft.Container(
-                    content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
-                    padding=ft.Padding.only(left=8, bottom=4),
-                ),
-            ]
-
-        # ── 待辦事項 ──
-        if result.get("action_required"):
-            modal_ai_scroll.controls += [
-                section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "Action Items"),
-                ft.Container(
-                    content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
-                    padding=ft.Padding.only(left=8, bottom=4),
-                ),
-            ]
-
-        # ── 重要時間 ──
-        if result.get("event_times"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "Key Dates"))
-            for item in result["event_times"]:
-                lbl = item.get("label", "")
-                t   = item.get("time", "")
-
-                # check if already in calendar so the button reflects current state on open
-                already_added = bool(email_id and event_exists(email_id, t))
-
-                cal_btn = ft.IconButton(
-                    icon=ft.Icons.EVENT_AVAILABLE if already_added else ft.Icons.CALENDAR_TODAY,
-                    icon_size=14,
-                    icon_color=ft.Colors.GREEN_400 if already_added else ft.Colors.BLUE_GREY_400,
-                    tooltip="Added to calendar" if already_added else "Add to calendar",
-                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                )
-
-                def _on_add_to_cal(e, _lbl=lbl, _t=t, _eid=email_id, _cat=category, _btn=cal_btn):
-                    if not _eid:
-                        return
-                    try:
-                        if event_exists(_eid, _t):
-                            # already in calendar — remove it
-                            delete_event_by_key(_eid, _t)
-                            _btn.icon       = ft.Icons.CALENDAR_TODAY
-                            _btn.icon_color = ft.Colors.BLUE_GREY_400
-                            _btn.tooltip    = "Add to calendar"
-                            print(f"[CAL] Removed from calendar — {_lbl}: {_t}")
-                        else:
-                            # not in calendar — add it
-                            add_event(_eid, _lbl, _t, source="manual", category=_cat)
-                            _btn.icon       = ft.Icons.EVENT_AVAILABLE
-                            _btn.icon_color = ft.Colors.GREEN_400
-                            _btn.tooltip    = "Added to calendar"
-                            print(f"[CAL] Added to calendar — {_lbl}: {_t}")
-                        page.update()
-                    except Exception as ex:
-                        print(f"[CAL] Failed to toggle event: {ex}")
-
-                cal_btn.on_click = _on_add_to_cal
-
+            # ── still loading ──
+            if result is None:
                 modal_ai_scroll.controls.append(
                     ft.Container(
                         content=ft.Row([
-                            ft.Icon(ft.Icons.SCHEDULE, size=13, color=ft.Colors.ORANGE_300),
-                            ft.Text(
-                                f"{lbl}: {t}",
-                                size=13, color=ft.Colors.ORANGE_300, selectable=True, expand=True,
-                            ),
-                            cal_btn,
-                        ], spacing=6),
-                        padding=ft.Padding.only(left=8, bottom=6),
+                            ft.ProgressRing(width=16, height=16, stroke_width=2),
+                            ft.Text("Analyzing...", size=13, color=ft.Colors.OUTLINE),
+                        ], spacing=8),
+                        padding=ft.Padding.only(top=16),
                     )
                 )
+                if modal_overlay.visible:
+                    page.update()
+                return
 
-        # ── 相關連結 ──
-        if result.get("urls"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "Related Links"))
-            for item in result["urls"]:
-                url = item.get("url", "")
+            # ── analysis failed ──
+            if result == "error":
                 modal_ai_scroll.controls.append(
-                    ft.GestureDetector(
-                        mouse_cursor=ft.MouseCursor.CLICK,
-                        on_tap=lambda e, u=url: webbrowser.open(u),
-                        content=ft.Container(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color=ft.Colors.RED_400),
+                            ft.Text("AI analysis failed. Please try again.", size=13, color=ft.Colors.RED_400),
+                        ], spacing=8),
+                        padding=ft.Padding.only(top=16),
+                    )
+                )
+                if modal_overlay.visible:
+                    page.update()
+                return
+
+            # ── helper: section label with icon ──
+            def section_header(icon, label):
+                return ft.Container(
+                    content=ft.Row([
+                        ft.Icon(icon, size=15, color=ft.Colors.BLUE_GREY_300),
+                        ft.Text(label, size=15, color=ft.Colors.BLUE_GREY_300, weight=ft.FontWeight.BOLD),
+                    ], spacing=6),
+                    padding=ft.Padding.only(top=16, bottom=6),
+                )
+
+            # 摘要
+            if result.get("summary"):
+                modal_ai_scroll.controls += [
+                    section_header(ft.Icons.SUMMARIZE, "Summary"),
+                    ft.Container(
+                        content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
+                        padding=ft.Padding.only(left=8, bottom=4),
+                    ),
+                ]
+
+            # ── 待辦事項 ──
+            if result.get("action_required"):
+                modal_ai_scroll.controls += [
+                    section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "Action Items"),
+                    ft.Container(
+                        content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
+                        padding=ft.Padding.only(left=8, bottom=4),
+                    ),
+                ]
+
+            # ── 重要時間 ──
+            if result.get("event_times"):
+                modal_ai_scroll.controls.append(section_header(ft.Icons.EVENT, "Key Dates"))
+                for item in result["event_times"]:
+                    lbl = item.get("label", "")
+                    t   = item.get("time", "")
+
+                    # check if already in calendar so the button reflects current state on open
+                    already_added = bool(email_id and event_exists(email_id, t))
+
+                    cal_btn = ft.IconButton(
+                        icon=ft.Icons.EVENT_AVAILABLE if already_added else ft.Icons.CALENDAR_TODAY,
+                        icon_size=14,
+                        icon_color=ft.Colors.GREEN_400 if already_added else ft.Colors.BLUE_GREY_400,
+                        tooltip="Added to calendar" if already_added else "Add to calendar",
+                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                    )
+
+                    def _on_add_to_cal(e, _lbl=lbl, _t=t, _eid=email_id, _cat=category, _btn=cal_btn):
+                        if not _eid:
+                            return
+                        try:
+                            if event_exists(_eid, _t):
+                                # already in calendar — remove it
+                                delete_event_by_key(_eid, _t)
+                                _btn.icon       = ft.Icons.CALENDAR_TODAY
+                                _btn.icon_color = ft.Colors.BLUE_GREY_400
+                                _btn.tooltip    = "Add to calendar"
+                                print(f"[CAL] Removed from calendar — {_lbl}: {_t}")
+                            else:
+                                # not in calendar — add it
+                                add_event(_eid, _lbl, _t, source="manual", category=_cat)
+                                _btn.icon       = ft.Icons.EVENT_AVAILABLE
+                                _btn.icon_color = ft.Colors.GREEN_400
+                                _btn.tooltip    = "Added to calendar"
+                                print(f"[CAL] Added to calendar — {_lbl}: {_t}")
+                            page.update()
+                        except Exception as ex:
+                            print(f"[CAL] Failed to toggle event: {ex}")
+
+                    cal_btn.on_click = _on_add_to_cal
+
+                    modal_ai_scroll.controls.append(
+                        ft.Container(
                             content=ft.Row([
-                                ft.Icon(ft.Icons.OPEN_IN_NEW, size=13, color=ft.Colors.BLUE_300),
+                                ft.Icon(ft.Icons.SCHEDULE, size=13, color=ft.Colors.ORANGE_300),
                                 ft.Text(
-                                    item.get("label") or url,
-                                    size=13, color=ft.Colors.BLUE_300,
+                                    f"{lbl}: {t}",
+                                    size=13, color=ft.Colors.ORANGE_300, selectable=True, expand=True,
                                 ),
+                                cal_btn,
                             ], spacing=6),
                             padding=ft.Padding.only(left=8, bottom=6),
-                        ),
+                        )
                     )
-                )
 
-        # ── 重點整理 ──
-        if result.get("key_points"):
-            modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "Key Points"))
-            for point in result["key_points"]:
-                modal_ai_scroll.controls.append(
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Text("•", size=13, color=ft.Colors.BLUE_GREY_300),
-                            ft.Text(point, size=13, color="#dddddd", selectable=True, expand=True),
-                        ], spacing=8),
-                        padding=ft.Padding.only(left=8, bottom=6),
+            # ── 相關連結 ──
+            if result.get("urls"):
+                modal_ai_scroll.controls.append(section_header(ft.Icons.LINK, "Related Links"))
+                for item in result["urls"]:
+                    url = item.get("url", "")
+                    modal_ai_scroll.controls.append(
+                        ft.GestureDetector(
+                            mouse_cursor=ft.MouseCursor.CLICK,
+                            on_tap=lambda e, u=url: webbrowser.open(u),
+                            content=ft.Container(
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.OPEN_IN_NEW, size=13, color=ft.Colors.BLUE_300),
+                                    ft.Text(
+                                        item.get("label") or url,
+                                        size=13, color=ft.Colors.BLUE_300,
+                                    ),
+                                ], spacing=6),
+                                padding=ft.Padding.only(left=8, bottom=6),
+                            ),
+                        )
                     )
-                )
 
-        if modal_overlay.visible:
-            page.update()
+            # ── 重點整理 ──
+            if result.get("key_points"):
+                modal_ai_scroll.controls.append(section_header(ft.Icons.PUSH_PIN, "Key Points"))
+                for point in result["key_points"]:
+                    modal_ai_scroll.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text("•", size=13, color=ft.Colors.BLUE_GREY_300),
+                                ft.Text(point, size=13, color="#dddddd", selectable=True, expand=True),
+                            ], spacing=8),
+                            padding=ft.Padding.only(left=8, bottom=6),
+                        )
+                    )
 
-    async def _analyze_modal_email(email_id, body, gen_id):
-        """Background task: serve detail analysis from DB cache or call AI if not cached."""
-        cat = modal_category
-        # check DB cache first — no AI call needed if already analyzed
-        cached = await asyncio.to_thread(get_detail_analysis, email_id)
-        if cached:
-            _render_ai_result(cached, gen_id, email_id=email_id, category=cat)
-            return
+            if modal_overlay.visible:
+                page.update()
 
-        _render_ai_result(None, gen_id, email_id=email_id, category=cat)  # show "analyzing…"
-        try:
-            result = await asyncio.to_thread(analyze_email_detail, body)
-            if result:
-                # persist so future opens are instant
-                await asyncio.to_thread(save_detail_analysis, email_id, result)
-                _render_ai_result(result, gen_id, email_id=email_id, category=cat)
-            else:
+        async def _analyze_modal_email(email_id, body, gen_id):
+            """Background task: serve detail analysis from DB cache or call AI if not cached."""
+            cat = modal_category
+            # check DB cache first — no AI call needed if already analyzed
+            cached = await asyncio.to_thread(get_detail_analysis, email_id)
+            if cached:
+                _render_ai_result(cached, gen_id, email_id=email_id, category=cat)
+                return
+
+            _render_ai_result(None, gen_id, email_id=email_id, category=cat)  # show "analyzing…"
+            try:
+                result = await asyncio.to_thread(analyze_email_detail, body)
+                if result:
+                    # persist so future opens are instant
+                    await asyncio.to_thread(save_detail_analysis, email_id, result)
+                    _render_ai_result(result, gen_id, email_id=email_id, category=cat)
+                else:
+                    _render_ai_result("error", gen_id, email_id=email_id, category=cat)
+            except Exception as ex:
+                print(f"[WARN] Modal AI analysis failed: {ex}")
                 _render_ai_result("error", gen_id, email_id=email_id, category=cat)
-        except Exception as ex:
-            print(f"[WARN] Modal AI analysis failed: {ex}")
-            _render_ai_result("error", gen_id, email_id=email_id, category=cat)
 
-    async def _open_modal(data):
-        """Open the email detail modal for any email data dict.
-        Shared by inbox card double-tap and calendar event double-tap."""
-        nonlocal modal_gen, modal_view_state, modal_category, _gmail_user_email
-        email_id = data['id']
+        async def _open_modal(data):
+            """Open the email detail modal for any email data dict.
+            Shared by inbox card double-tap and calendar event double-tap."""
+            nonlocal modal_gen, modal_view_state, modal_category, _gmail_user_email
+            email_id = data['id']
 
-        modal_gen += 1
-        this_gen = modal_gen
+            modal_gen += 1
+            this_gen = modal_gen
 
-        # reset to raw tab, clear previous AI content
-        modal_view_state       = "raw"
-        modal_raw_view.visible = True
-        modal_ai_view.visible  = False
-        _tab_on(modal_raw_tab_icon, modal_raw_tab)
-        _tab_off(modal_ai_tab_icon, modal_ai_tab)
-        modal_ai_scroll.controls.clear()
+            # reset to raw tab, clear previous AI content
+            modal_view_state       = "raw"
+            modal_raw_view.visible = True
+            modal_ai_view.visible  = False
+            _tab_on(modal_raw_tab_icon, modal_raw_tab)
+            _tab_off(modal_ai_tab_icon, modal_ai_tab)
+            modal_ai_scroll.controls.clear()
 
-        # populate modal header and show it immediately
-        modal_subject.value   = data['subject']
-        modal_sender.value    = data['sender']
-        modal_time.value      = data['time']
-        modal_body.value      = ""
-        modal_category        = data.get('category')
-        modal_data[0]         = data
+            # populate modal header and show it immediately
+            modal_subject.value   = data['subject']
+            modal_sender.value    = data['sender']
+            modal_time.value      = data['time']
+            modal_body.value      = ""
+            modal_category        = data.get('category')
+            modal_data[0]         = data
 
-        # configure action buttons based on the current view
-        if current_view == "trash":
-            modal_star_btn.visible    = False
-            modal_archive_btn.visible = True
-            modal_archive_btn.icon       = ft.Icons.RESTORE_FROM_TRASH
-            modal_archive_btn.icon_color = ft.Colors.GREEN_400
-            modal_archive_btn.tooltip    = "Restore to Inbox"
-            modal_trash_btn.visible   = True
-            modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
-            modal_trash_btn.tooltip   = "Permanent delete"
-        elif current_view == "sent":
-            modal_star_btn.visible    = False
-            modal_archive_btn.visible = False
-            modal_trash_btn.visible   = False
-        else:
-            modal_star_btn.visible    = True
-            modal_archive_btn.visible = True
-            modal_archive_btn.icon       = ft.Icons.ARCHIVE
-            modal_archive_btn.icon_color = ft.Colors.GREEN_400
-            modal_archive_btn.tooltip    = "Archive"
-            modal_trash_btn.visible   = True
-            modal_trash_btn.icon      = ft.Icons.DELETE
-            modal_trash_btn.tooltip   = "Delete"
+            # configure action buttons based on the current view
+            if current_view == "trash":
+                modal_star_btn.visible    = False
+                modal_archive_btn.visible = True
+                modal_archive_btn.icon       = ft.Icons.RESTORE_FROM_TRASH
+                modal_archive_btn.icon_color = ft.Colors.GREEN_400
+                modal_archive_btn.tooltip    = "Restore to Inbox"
+                modal_trash_btn.visible   = True
+                modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
+                modal_trash_btn.tooltip   = "Permanent delete"
+            elif current_view == "sent":
+                modal_star_btn.visible    = False
+                modal_archive_btn.visible = False
+                modal_trash_btn.visible   = False
+            else:
+                modal_star_btn.visible    = True
+                modal_archive_btn.visible = True
+                modal_archive_btn.icon       = ft.Icons.ARCHIVE
+                modal_archive_btn.icon_color = ft.Colors.GREEN_400
+                modal_archive_btn.tooltip    = "Archive"
+                modal_trash_btn.visible   = True
+                modal_trash_btn.icon      = ft.Icons.DELETE
+                modal_trash_btn.tooltip   = "Delete"
 
-        # sync star button to the email's current star state
-        _starred = data.get('is_starred', False)
-        modal_star_btn.icon       = ft.Icons.STAR if _starred else ft.Icons.STAR_BORDER
-        modal_star_btn.icon_color = ft.Colors.YELLOW_400 if _starred else ft.Colors.YELLOW_600
-        modal_overlay.visible = True
-        page.update()
-
-        body = ""
-        try:
-            # mark as read in Gmail if still unread
-            if data.get('is_unread'):
-                data['is_unread'] = False
-                live_stats["unread"]      = max(0, live_stats["unread"] - 1)
-                all_mail_stats["unread"]  = max(0, all_mail_stats["unread"] - 1)
-                update_stats_display()
-                try:
-                    await asyncio.to_thread(mark_as_read, svc["service"], email_id)
-                except Exception as ex:
-                    print(f"[WARN] Failed to mark as read: {ex}")
-
-            # fresh service so it doesn't race with background fetch
-            modal_service = await asyncio.to_thread(get_gmail_service)
-            # fetch user email once and cache it — used to build the correct Gmail web URL
-            if not _gmail_user_email:
-                profile = await asyncio.to_thread(
-                    modal_service.users().getProfile(userId="me").execute
-                )
-                _gmail_user_email = profile.get("emailAddress", "")
-
-            msg_full = await asyncio.to_thread(
-                modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
-            )
-
-            # build Gmail web URL using authenticated email (bypasses u/N index problem)
-            # and RFC 2822 Message-ID header (guaranteed to point to the exact email)
-            headers = msg_full.get("payload", {}).get("headers", [])
-            rfc822_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
-            if _gmail_user_email and rfc822_id:
-                encoded_id = urllib.parse.quote(rfc822_id, safe="")
-                # AccountChooser selects the right Google account then redirects
-                # to the Gmail search URL — avoids the u/N index problem entirely
-                gmail_search = (
-                    f"https://mail.google.com/mail/"
-                    f"#search/rfc822msgid:{encoded_id}"
-                )
-                modal_gmail_btn.url = (
-                    f"https://accounts.google.com/AccountChooser"
-                    f"?Email={_gmail_user_email}"
-                    f"&continue={urllib.parse.quote(gmail_search, safe='')}"
-                )
-
-            body = get_email_body(msg_full.get("payload", {}))
-            modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
-        except Exception as ex:
-            modal_body.value = f"(Failed to load email content: {ex})"
-        finally:
+            # sync star button to the email's current star state
+            _starred = data.get('is_starred', False)
+            modal_star_btn.icon       = ft.Icons.STAR if _starred else ft.Icons.STAR_BORDER
+            modal_star_btn.icon_color = ft.Colors.YELLOW_400 if _starred else ft.Colors.YELLOW_600
+            modal_overlay.visible = True
             page.update()
 
-        if body and body.strip():
-            page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
+            body = ""
+            try:
+                # mark as read in Gmail if still unread
+                if data.get('is_unread'):
+                    data['is_unread'] = False
+                    live_stats["unread"]      = max(0, live_stats["unread"] - 1)
+                    all_mail_stats["unread"]  = max(0, all_mail_stats["unread"] - 1)
+                    update_stats_display()
+                    try:
+                        await asyncio.to_thread(mark_as_read, svc["service"], email_id)
+                    except Exception as ex:
+                        print(f"[WARN] Failed to mark as read: {ex}")
 
-    # ── modal action buttons (star / archive / trash) ──
-    modal_star_btn = ft.IconButton(
-        icon=ft.Icons.STAR_BORDER,
-        icon_size=20,
-        icon_color=ft.Colors.YELLOW_600,
-        tooltip="Star",
-        padding=ft.Padding.all(2),
-    )
-    modal_archive_btn = ft.IconButton(
-        icon=ft.Icons.ARCHIVE,
-        icon_size=20,
-        icon_color=ft.Colors.GREEN_400,
-        tooltip="Archive",
-        padding=ft.Padding.all(2),
-    )
-    modal_trash_btn = ft.IconButton(
-        icon=ft.Icons.DELETE,
-        icon_size=20,
-        icon_color=ft.Colors.RED_400,
-        tooltip="Delete",
-        padding=ft.Padding.all(2),
-    )
+                # fresh service so it doesn't race with background fetch
+                modal_service = await asyncio.to_thread(get_gmail_service)
+                # fetch user email once and cache it — used to build the correct Gmail web URL
+                if not _gmail_user_email:
+                    profile = await asyncio.to_thread(
+                        modal_service.users().getProfile(userId="me").execute
+                    )
+                    _gmail_user_email = profile.get("emailAddress", "")
 
-    async def _modal_on_star(e):
-        data = modal_data[0]
-        if data is None:
-            return
-        new_val = not data.get('is_starred', False)
-        data['is_starred'] = new_val
-        # update modal button
-        modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
-        modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
-        # sync the card star button visible behind the transparent modal
-        card_star = data.get('_star_btn_ref')
-        if card_star:
-            card_star.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
-            card_star.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
-        if new_val:
-            live_stats["starred"]     += 1
-            all_mail_stats["starred"] += 1
-        else:
-            live_stats["starred"]     = max(0, live_stats["starred"] - 1)
-            all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
-        update_stats_display()
-        await _call_with_ssl_retry(toggle_star, data['id'], new_val)
+                msg_full = await asyncio.to_thread(
+                    modal_service.users().messages().get(userId="me", id=email_id, format="full").execute
+                )
 
-    async def _do_archive_email(data):
-        """Archive: removes INBOX label.  Email stays in All Mail list; only
-        disappears from Inbox view.  Does NOT delete DB records."""
-        email_id     = data['id']
-        was_in_inbox = data.get('is_in_inbox', True)
-        async with ui_lock:
-            data['is_in_inbox'] = False
-            # remove card from view only when looking at the inbox filter
-            if current_view == "inbox":
+                # build Gmail web URL using authenticated email (bypasses u/N index problem)
+                # and RFC 2822 Message-ID header (guaranteed to point to the exact email)
+                headers = msg_full.get("payload", {}).get("headers", [])
+                rfc822_id = next((h["value"] for h in headers if h["name"] == "Message-ID"), "")
+                if _gmail_user_email and rfc822_id:
+                    encoded_id = urllib.parse.quote(rfc822_id, safe="")
+                    # AccountChooser selects the right Google account then redirects
+                    # to the Gmail search URL — avoids the u/N index problem entirely
+                    gmail_search = (
+                        f"https://mail.google.com/mail/"
+                        f"#search/rfc822msgid:{encoded_id}"
+                    )
+                    modal_gmail_btn.url = (
+                        f"https://accounts.google.com/AccountChooser"
+                        f"?Email={_gmail_user_email}"
+                        f"&continue={urllib.parse.quote(gmail_search, safe='')}"
+                    )
+
+                body = get_email_body(msg_full.get("payload", {}))
+                modal_body.value = body.strip() if body and body.strip() else "(No readable content)"
+            except Exception as ex:
+                modal_body.value = f"(Failed to load email content: {ex})"
+            finally:
+                page.update()
+
+            if body and body.strip():
+                page.run_task(_analyze_modal_email, email_id, body.strip(), this_gen)
+
+        # ── modal action buttons (star / archive / trash) ──
+        modal_star_btn = ft.IconButton(
+            icon=ft.Icons.STAR_BORDER,
+            icon_size=20,
+            icon_color=ft.Colors.YELLOW_600,
+            tooltip="Star",
+            padding=ft.Padding.all(2),
+        )
+        modal_archive_btn = ft.IconButton(
+            icon=ft.Icons.ARCHIVE,
+            icon_size=20,
+            icon_color=ft.Colors.GREEN_400,
+            tooltip="Archive",
+            padding=ft.Padding.all(2),
+        )
+        modal_trash_btn = ft.IconButton(
+            icon=ft.Icons.DELETE,
+            icon_size=20,
+            icon_color=ft.Colors.RED_400,
+            tooltip="Delete",
+            padding=ft.Padding.all(2),
+        )
+
+        async def _modal_on_star(e):
+            data = modal_data[0]
+            if data is None:
+                return
+            new_val = not data.get('is_starred', False)
+            data['is_starred'] = new_val
+            # update modal button
+            modal_star_btn.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+            modal_star_btn.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+            # sync the card star button visible behind the transparent modal
+            card_star = data.get('_star_btn_ref')
+            if card_star:
+                card_star.icon = ft.Icons.STAR if new_val else ft.Icons.STAR_BORDER
+                card_star.icon_color = ft.Colors.YELLOW_400 if new_val else ft.Colors.YELLOW_600
+            if new_val:
+                live_stats["starred"]     += 1
+                all_mail_stats["starred"] += 1
+            else:
+                live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+                all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
+            update_stats_display()
+            await _call_with_ssl_retry(toggle_star, data['id'], new_val)
+
+        async def _do_archive_email(data):
+            """Archive: removes INBOX label.  Email stays in All Mail list; only
+            disappears from Inbox view.  Does NOT delete DB records."""
+            email_id     = data['id']
+            was_in_inbox = data.get('is_in_inbox', True)
+            async with ui_lock:
+                data['is_in_inbox'] = False
+                # remove card from view only when looking at the inbox filter
+                if current_view == "inbox":
+                    card = data.get('_card_ref')
+                    if card and card in email_list_view.controls:
+                        email_list_view.controls.remove(card)
+                    shown_email_ids.pop(email_id, None)
+                    fill_next_fn[0]()
+                # adjust inbox-scoped counters only if the email actually had INBOX label
+                if was_in_inbox:
+                    live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                    if data.get('is_unread'):
+                        live_stats["unread"]     = max(0, live_stats["unread"] - 1)
+                        all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
+                    if data.get('is_starred'):
+                        live_stats["starred"] = max(0, live_stats["starred"] - 1)
+                        # all_mail starred unchanged — email is still in All Mail
+                update_stats_display()
+            await asyncio.sleep(0)
+
+        async def _do_trash_email(data):
+            """Trash: removes email from All Mail entirely.  Deletes DB records."""
+            email_id     = data['id']
+            was_in_inbox = data.get('is_in_inbox', True)
+            async with ui_lock:
                 card = data.get('_card_ref')
                 if card and card in email_list_view.controls:
                     email_list_view.controls.remove(card)
                 shown_email_ids.pop(email_id, None)
-                fill_next_email()
-            # adjust inbox-scoped counters only if the email actually had INBOX label
-            if was_in_inbox:
-                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                all_emails[:] = [item for item in all_emails if item['id'] != email_id]
+                fill_next_fn[0]()
+                if was_in_inbox:
+                    live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
+                    if data.get('is_unread'):
+                        live_stats["unread"] = max(0, live_stats["unread"] - 1)
+                    if data.get('is_starred'):
+                        live_stats["starred"]     = max(0, live_stats["starred"] - 1)
+                        all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
                 if data.get('is_unread'):
-                    live_stats["unread"]     = max(0, live_stats["unread"] - 1)
                     all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
-                if data.get('is_starred'):
-                    live_stats["starred"] = max(0, live_stats["starred"] - 1)
-                    # all_mail starred unchanged — email is still in All Mail
-            update_stats_display()
-        await asyncio.sleep(0)
+                all_mail_stats["total"] = max(0, all_mail_stats["total"] - 1)
+                update_stats_display()
+            await asyncio.sleep(0)
+            await asyncio.to_thread(delete_analysis, email_id)
+            await asyncio.to_thread(delete_events_by_email_id, email_id)
 
-    async def _do_trash_email(data):
-        """Trash: removes email from All Mail entirely.  Deletes DB records."""
-        email_id     = data['id']
-        was_in_inbox = data.get('is_in_inbox', True)
-        async with ui_lock:
-            card = data.get('_card_ref')
-            if card and card in email_list_view.controls:
-                email_list_view.controls.remove(card)
-            shown_email_ids.pop(email_id, None)
-            all_emails[:] = [item for item in all_emails if item['id'] != email_id]
-            fill_next_email()
-            if was_in_inbox:
-                live_stats["inbox"] = max(0, live_stats["inbox"] - 1)
-                if data.get('is_unread'):
-                    live_stats["unread"] = max(0, live_stats["unread"] - 1)
-                if data.get('is_starred'):
-                    live_stats["starred"]     = max(0, live_stats["starred"] - 1)
-                    all_mail_stats["starred"] = max(0, all_mail_stats["starred"] - 1)
-            if data.get('is_unread'):
-                all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
-            all_mail_stats["total"] = max(0, all_mail_stats["total"] - 1)
-            update_stats_display()
-        await asyncio.sleep(0)
-        await asyncio.to_thread(delete_analysis, email_id)
-        await asyncio.to_thread(delete_events_by_email_id, email_id)
+        async def _do_restore_email(data):
+            """Restore: remove card from Trash view; the email moves back to Inbox."""
+            email_id = data['id']
+            async with ui_lock:
+                card = data.get('_card_ref')
+                if card and card in email_list_view.controls:
+                    email_list_view.controls.remove(card)
+                trash_shown_ids.pop(email_id, None)
+                trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
+            await asyncio.sleep(0)
 
-    async def _do_restore_email(data):
-        """Restore: remove card from Trash view; the email moves back to Inbox."""
-        email_id = data['id']
-        async with ui_lock:
-            card = data.get('_card_ref')
-            if card and card in email_list_view.controls:
-                email_list_view.controls.remove(card)
-            trash_shown_ids.pop(email_id, None)
-            trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
-        await asyncio.sleep(0)
+        async def _do_permanent_delete_email(data):
+            """Permanent delete: remove card from Trash view and clean up DB."""
+            email_id = data['id']
+            async with ui_lock:
+                card = data.get('_card_ref')
+                if card and card in email_list_view.controls:
+                    email_list_view.controls.remove(card)
+                trash_shown_ids.pop(email_id, None)
+                trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
+            await asyncio.sleep(0)
+            await asyncio.to_thread(delete_analysis, email_id)
+            await asyncio.to_thread(delete_events_by_email_id, email_id)
 
-    async def _do_permanent_delete_email(data):
-        """Permanent delete: remove card from Trash view and clean up DB."""
-        email_id = data['id']
-        async with ui_lock:
-            card = data.get('_card_ref')
-            if card and card in email_list_view.controls:
-                email_list_view.controls.remove(card)
-            trash_shown_ids.pop(email_id, None)
-            trash_emails[:] = [item for item in trash_emails if item['id'] != email_id]
-        await asyncio.sleep(0)
-        await asyncio.to_thread(delete_analysis, email_id)
-        await asyncio.to_thread(delete_events_by_email_id, email_id)
+        async def _modal_on_archive(e):
+            data = modal_data[0]
+            if data is None:
+                return
+            close_modal()
+            await asyncio.sleep(0)
+            if current_view == "trash":
+                await _do_restore_email(data)
+                await _call_with_ssl_retry(restore_email, data['id'])
+            else:
+                await _do_archive_email(data)
+                await _call_with_ssl_retry(archive_email, data['id'])
 
-    async def _modal_on_archive(e):
-        data = modal_data[0]
-        if data is None:
-            return
-        close_modal()
-        await asyncio.sleep(0)
-        if current_view == "trash":
-            await _do_restore_email(data)
-            await _call_with_ssl_retry(restore_email, data['id'])
-        else:
-            await _do_archive_email(data)
-            await _call_with_ssl_retry(archive_email, data['id'])
+        async def _modal_on_trash(e):
+            data = modal_data[0]
+            if data is None:
+                return
+            close_modal()
+            await asyncio.sleep(0)
+            if current_view == "trash":
+                await _do_permanent_delete_email(data)
+                await _call_with_ssl_retry(permanent_delete_email, data['id'])
+            else:
+                await _do_trash_email(data)
+                await _call_with_ssl_retry(trash_email, data['id'])
 
-    async def _modal_on_trash(e):
-        data = modal_data[0]
-        if data is None:
-            return
-        close_modal()
-        await asyncio.sleep(0)
-        if current_view == "trash":
-            await _do_permanent_delete_email(data)
-            await _call_with_ssl_retry(permanent_delete_email, data['id'])
-        else:
-            await _do_trash_email(data)
-            await _call_with_ssl_retry(trash_email, data['id'])
+        modal_star_btn.on_click    = lambda e: page.run_task(_modal_on_star,    e)
+        modal_archive_btn.on_click = lambda e: page.run_task(_modal_on_archive, e)
+        modal_trash_btn.on_click   = lambda e: page.run_task(_modal_on_trash,   e)
 
-    modal_star_btn.on_click    = lambda e: page.run_task(_modal_on_star,    e)
-    modal_archive_btn.on_click = lambda e: page.run_task(_modal_on_archive, e)
-    modal_trash_btn.on_click   = lambda e: page.run_task(_modal_on_trash,   e)
-
-    # Stack layers (bottom → top):
-    #   1. semi-transparent black backdrop (visual only)
-    #   2. full-screen GestureDetector that closes modal on tap outside the box
-    #      -> centered Container
-    #         -> inner GestureDetector that absorbs taps inside the 720×540 box
-    modal_overlay = ft.Stack(
-        visible=False,
-        expand=True,
-        controls=[
-            # 1. visual backdrop — no interaction, just the dim effect
-            ft.Container(
-                expand=True,
-                bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
-            ),
-            # 2. full-screen tap layer — closes modal when tapped outside the box
-            ft.GestureDetector(
-                on_tap=lambda e: close_modal(),
-                content=ft.Container(
+        # Stack layers (bottom → top):
+        #   1. semi-transparent black backdrop (visual only)
+        #   2. full-screen GestureDetector that closes modal on tap outside the box
+        #      -> centered Container
+        #         -> inner GestureDetector that absorbs taps inside the 720×540 box
+        modal_overlay = ft.Stack(
+            visible=False,
+            expand=True,
+            controls=[
+                # 1. visual backdrop — no interaction, just the dim effect
+                ft.Container(
                     expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    content=ft.GestureDetector(
-                        # absorb taps so they don't bubble up to the close layer
-                        on_tap=lambda e: None,
-                        content=ft.Container(
-                            width=720,
-                            height=540,
-                            bgcolor="#1e1e1e",
-                            border_radius=14,
-                            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
-                            padding=ft.Padding.all(24),
-                            content=ft.Column(
-                                spacing=10,
-                                expand=True,
-                                controls=[
-                                    # row 1: subject title (left) + action buttons (right)
-                                    ft.Row(
-                                        controls=[
-                                            ft.Container(content=modal_subject, expand=True),
-                                            ft.Row(
-                                                controls=[modal_star_btn, modal_archive_btn, modal_trash_btn],
-                                                spacing=0,
-                                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                            ),
-                                        ],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                    # row 2: sender name (left) + received time (right)
-                                    ft.Row(
-                                        controls=[modal_sender, modal_time],
-                                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                                    # raw content view (default) — expands to fill remaining space
-                                    modal_raw_view,
-                                    # AI analysis view — hidden until user switches tab
-                                    modal_ai_view,
-                                    ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
-                                    # bottom bar: Gmail link (left) + tab switcher (right)
-                                    ft.Row(
-                                        controls=[
-                                            modal_gmail_btn,
-                                            ft.Container(expand=True),
-                                            ft.Container(
-                                                content=ft.Row(
-                                                    controls=[modal_raw_tab, modal_ai_tab],
-                                                    spacing=2,
+                    bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
+                ),
+                # 2. full-screen tap layer — closes modal when tapped outside the box
+                ft.GestureDetector(
+                    on_tap=lambda e: close_modal(),
+                    content=ft.Container(
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.GestureDetector(
+                            # absorb taps so they don't bubble up to the close layer
+                            on_tap=lambda e: None,
+                            content=ft.Container(
+                                width=720,
+                                height=540,
+                                bgcolor="#1e1e1e",
+                                border_radius=14,
+                                border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                                padding=ft.Padding.all(24),
+                                content=ft.Column(
+                                    spacing=10,
+                                    expand=True,
+                                    controls=[
+                                        # row 1: subject title (left) + action buttons (right)
+                                        ft.Row(
+                                            controls=[
+                                                ft.Container(content=modal_subject, expand=True),
+                                                ft.Row(
+                                                    controls=[modal_star_btn, modal_archive_btn, modal_trash_btn],
+                                                    spacing=0,
+                                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                                 ),
-                                                bgcolor="#2a2a2a",
-                                                border_radius=8,
-                                                padding=ft.Padding.all(3),
-                                            ),
-                                        ],
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                ],
+                                            ],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                        # row 2: sender name (left) + received time (right)
+                                        ft.Row(
+                                            controls=[modal_sender, modal_time],
+                                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                        ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                        # raw content view (default) — expands to fill remaining space
+                                        modal_raw_view,
+                                        # AI analysis view — hidden until user switches tab
+                                        modal_ai_view,
+                                        ft.Divider(height=1, color=ft.Colors.OUTLINE_VARIANT),
+                                        # bottom bar: Gmail link (left) + tab switcher (right)
+                                        ft.Row(
+                                            controls=[
+                                                modal_gmail_btn,
+                                                ft.Container(expand=True),
+                                                ft.Container(
+                                                    content=ft.Row(
+                                                        controls=[modal_raw_tab, modal_ai_tab],
+                                                        spacing=2,
+                                                    ),
+                                                    bgcolor="#2a2a2a",
+                                                    border_radius=8,
+                                                    padding=ft.Padding.all(3),
+                                                ),
+                                            ],
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                    ],
+                                ),
                             ),
                         ),
                     ),
                 ),
-            ),
-        ],
-    )
+            ],
+        )
 
-    # ====================
-    # Email Card Helpers
-    # ====================
+        # ====================
+        # Email Card Helpers
+        # ====================
 
-    async def _call_with_ssl_retry(fn, *args):
-        """Call a Gmail API function using a FRESH service instance.
+        async def _call_with_ssl_retry(fn, *args):
+            """Call a Gmail API function using a FRESH service instance.
 
-        Each action (delete, archive, star, mark-read) calls build_action_service()
-        to obtain its own httplib2.Http connection pool.  This prevents the
-        background email-fetch thread and action threads from sharing an SSL socket,
-        which caused libmalloc heap corruption (EXC_BREAKPOINT / SIGTRAP) on macOS.
-        """
-        try:
-            action_svc = await asyncio.to_thread(build_action_service)
-            await asyncio.to_thread(fn, action_svc, *args)
-        except (ssl.SSLError, OSError) as ex:
-            if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
-                raise
-            print(f"[SSL] SSL error on action, retrying with new service... ({ex})")
-            action_svc = await asyncio.to_thread(get_gmail_service)
-            await asyncio.to_thread(fn, action_svc, *args)
-        except Exception as ex:
-            err = str(ex).lower()
-            if "invalid_grant" in err or ("token" in err and "expired" in err):
-                # Token revoked mid-session — re-auth and update main fetch service too
-                print(f"[AUTH] Token revoked mid-session, re-authenticating... ({ex})")
-                action_svc = await asyncio.to_thread(get_gmail_service)
-                svc["service"] = action_svc   # refresh fetch service with new credentials
+            Each action (delete, archive, star, mark-read) calls build_action_service()
+            to obtain its own httplib2.Http connection pool.  This prevents the
+            background email-fetch thread and action threads from sharing an SSL socket,
+            which caused libmalloc heap corruption (EXC_BREAKPOINT / SIGTRAP) on macOS.
+            """
+            try:
+                action_svc = await asyncio.to_thread(build_action_service)
                 await asyncio.to_thread(fn, action_svc, *args)
-            else:
-                raise
+            except (ssl.SSLError, OSError) as ex:
+                if "SSL" not in str(ex) and not isinstance(ex, ssl.SSLError):
+                    raise
+                print(f"[SSL] SSL error on action, retrying with new service... ({ex})")
+                action_svc = await asyncio.to_thread(get_gmail_service)
+                await asyncio.to_thread(fn, action_svc, *args)
+            except Exception as ex:
+                err = str(ex).lower()
+                if "invalid_grant" in err or ("token" in err and "expired" in err):
+                    # Token revoked mid-session — re-auth and update main fetch service too
+                    print(f"[AUTH] Token revoked mid-session, re-authenticating... ({ex})")
+                    action_svc = await asyncio.to_thread(get_gmail_service)
+                    svc["service"] = action_svc   # refresh fetch service with new credentials
+                    await asyncio.to_thread(fn, action_svc, *args)
+                else:
+                    raise
+
+        return (
+            modal_overlay, close_modal, _open_modal, modal_data, modal_star_btn,
+            _call_with_ssl_retry,
+            _do_archive_email, _do_trash_email, _do_restore_email, _do_permanent_delete_email,
+        )
+
+    fill_next_fn = [None]   # forward reference: modal._do_* → view_manager.fill_next_email
+    (
+        modal_overlay, close_modal, _open_modal, modal_data, modal_star_btn,
+        _call_with_ssl_retry,
+        _do_archive_email, _do_trash_email, _do_restore_email, _do_permanent_delete_email,
+    ) = _build_modal_controller(fill_next_fn)
+
 
     # returns True if the email was sent from Moodle
     def is_moodle(data) -> bool:
