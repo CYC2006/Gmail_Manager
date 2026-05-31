@@ -192,33 +192,39 @@ def build_account_tab(page: ft.Page) -> SimpleNamespace:
         return ft.Text(
             text,
             width=_LABEL_WIDTH,
-            size=14,
-            color=ft.Colors.GREY_300,
+            size=17,
+            color=ft.Colors.GREY_200,
             weight=ft.FontWeight.W_500,
         )
 
     def _field_row(label_text: str, widget: ft.Control) -> ft.Row:
-        # label (fixed) | widget (expand=1, ~half width) | spacer (expand=1)
+        # label (fixed) | spacer (expand=1) | widget (expand=1, right half)
         return ft.Row(
-            [_label(label_text), ft.Container(content=widget, expand=1), ft.Container(expand=1)],
+            [_label(label_text), ft.Container(expand=1), ft.Container(content=widget, expand=1)],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-    # ── Gmail note (shown below the Gmail field) ────────────────────────────
-    _gmail_note = ft.Container(
-        padding=ft.Padding.only(left=_LABEL_WIDTH + 4),
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.INFO_OUTLINE, size=12, color=ft.Colors.GREY_600),
-                ft.Text(
-                    "Gmail connection initialisation will be tied to this address in a future update.",
-                    size=11,
-                    color=ft.Colors.GREY_600,
-                    italic=True,
+    # ── Gmail note — mirrors field_row structure so it sits under the input ─
+    _gmail_note = ft.Row(
+        [
+            ft.Container(width=_LABEL_WIDTH),   # invisible label placeholder
+            ft.Container(expand=1),              # spacer matching field_row
+            ft.Container(
+                expand=1,
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.INFO_OUTLINE, size=12, color=ft.Colors.GREY_600),
+                        ft.Text(
+                            "Gmail connection initialisation will be tied to this address in a future update.",
+                            size=11,
+                            color=ft.Colors.GREY_600,
+                            italic=True,
+                        ),
+                    ],
+                    spacing=4,
                 ),
-            ],
-            spacing=4,
-        ),
+            ),
+        ],
     )
 
     # ── full tab content ─────────────────────────────────────────────────────
