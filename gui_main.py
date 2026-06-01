@@ -508,6 +508,17 @@ def main(page: ft.Page):
                 modal_trash_btn.visible   = True
                 modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
                 modal_trash_btn.tooltip   = "Permanent delete"
+            elif current_view == "all_mail":
+                # no Archive in All Mail — archiving here is confusing since email stays visible
+                modal_star_btn.visible    = True
+                modal_archive_btn.visible = False
+                modal_trash_btn.visible   = True
+                modal_trash_btn.icon      = ft.Icons.DELETE
+                modal_trash_btn.tooltip   = "Delete"
+            elif current_view == "sent":
+                modal_star_btn.visible    = False
+                modal_archive_btn.visible = False
+                modal_trash_btn.visible   = False
             else:
                 modal_star_btn.visible    = True
                 modal_archive_btn.visible = True
@@ -1038,7 +1049,31 @@ def main(page: ft.Page):
                                                 on_click=lambda e: page.run_task(on_permanent_delete, e, card_ref[0]),
                                             ),
                                         ] if card_mode == "trash" else
-                                        # ── Default (Inbox / All Mail / Moodle) ──
+                                        # ── Sent view: read-only ──
+                                        [
+                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                        ] if card_mode == "sent" else
+                                        # ── All Mail: Read + Star + Trash (no Archive) ──
+                                        [
+                                            ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
+                                            ft.IconButton(
+                                                icon=ft.Icons.MARK_EMAIL_READ,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                tooltip="Mark as read",
+                                                on_click=lambda e: page.run_task(on_mark_read, e),
+                                            ),
+                                            _card_star_btn,
+                                            ft.IconButton(
+                                                icon=ft.Icons.DELETE,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.RED_400,
+                                                tooltip="Delete",
+                                                on_click=lambda e: page.run_task(on_trash, e, card_ref[0]),
+                                            ),
+                                        ] if card_mode == "all_mail" else
+                                        # ── Default (Inbox / Moodle): Read + Star + Archive + Trash ──
                                         [
                                             ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
                                             ft.IconButton(
@@ -1131,7 +1166,11 @@ def main(page: ft.Page):
         def _card_mode() -> str:
             if current_view == "trash":
                 return "trash"
-            return "default"
+            if current_view == "sent":
+                return "sent"
+            if current_view == "all_mail":
+                return "all_mail"
+            return "default"  # inbox / moodle
 
         # returns True if this email should be visible in the currently active view
         def _matches_view(data) -> bool:
