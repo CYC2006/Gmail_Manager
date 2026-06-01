@@ -880,14 +880,16 @@ def main(page: ft.Page):
         return (
             modal_overlay, close_modal, _open_modal, modal_data, modal_star_btn,
             _call_with_ssl_retry,
-            _do_archive_email, _do_trash_email, _do_restore_email, _do_permanent_delete_email,
+            _do_archive_email, _do_unarchive_email, _do_trash_email,
+            _do_restore_email, _do_permanent_delete_email,
         )
 
     fill_next_fn = [None]   # forward reference: modal._do_* → view_manager.fill_next_email
     (
         modal_overlay, close_modal, _open_modal, modal_data, modal_star_btn,
         _call_with_ssl_retry,
-        _do_archive_email, _do_trash_email, _do_restore_email, _do_permanent_delete_email,
+        _do_archive_email, _do_unarchive_email, _do_trash_email,
+        _do_restore_email, _do_permanent_delete_email,
     ) = _build_modal_controller(fill_next_fn)
 
 
