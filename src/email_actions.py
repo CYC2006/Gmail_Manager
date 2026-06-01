@@ -39,6 +39,18 @@ def trash_email(service, email_id):
     except Exception as e:
         print(f"❌ 刪除失敗: {e}")
 
+def unarchive_email(service, email_id):
+    """Move an archived email back to Inbox by adding the INBOX label."""
+    try:
+        service.users().messages().modify(
+            userId='me',
+            id=email_id,
+            body={'addLabelIds': ['INBOX']},
+        ).execute()
+        print(f"📥 Email {email_id} moved back to Inbox")
+    except Exception as e:
+        print(f"❌ Unarchive failed: {e}")
+
 def restore_email(service, email_id):
     """Restore an email from Trash back to Inbox."""
     try:

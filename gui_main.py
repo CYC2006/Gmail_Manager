@@ -16,7 +16,7 @@ from src.gmail_reader import (
     fetch_and_analyze_emails, fetch_simple_emails,
     get_inbox_stats, get_all_mail_stats,
 )
-from src.email_actions import mark_as_read, toggle_star, archive_email, trash_email, restore_email, permanent_delete_email
+from src.email_actions import mark_as_read, toggle_star, archive_email, unarchive_email, trash_email, restore_email, permanent_delete_email
 from src.db_manager import delete_analysis, get_detail_analysis, save_detail_analysis, get_cached_result
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail
@@ -509,12 +509,14 @@ def main(page: ft.Page):
                 modal_trash_btn.icon      = ft.Icons.DELETE_FOREVER
                 modal_trash_btn.tooltip   = "Permanent delete"
             elif current_view == "all_mail":
-                # no Archive in All Mail — archiving here is confusing since email stays visible
-                modal_star_btn.visible    = True
-                modal_archive_btn.visible = False
-                modal_trash_btn.visible   = True
-                modal_trash_btn.icon      = ft.Icons.DELETE
-                modal_trash_btn.tooltip   = "Delete"
+                modal_star_btn.visible       = True
+                modal_archive_btn.visible    = True
+                modal_archive_btn.icon       = ft.Icons.MOVE_TO_INBOX
+                modal_archive_btn.icon_color = ft.Colors.GREEN_400
+                modal_archive_btn.tooltip    = "Move to Inbox"
+                modal_trash_btn.visible      = True
+                modal_trash_btn.icon         = ft.Icons.DELETE
+                modal_trash_btn.tooltip      = "Delete"
             elif current_view == "sent":
                 modal_star_btn.visible    = False
                 modal_archive_btn.visible = False
@@ -688,6 +690,19 @@ def main(page: ft.Page):
             await asyncio.to_thread(delete_analysis, email_id)
             await asyncio.to_thread(delete_events_by_email_id, email_id)
 
+        async def _do_unarchive_email(data):
+            """Unarchive: add INBOX label back.  Email stays in All Mail list."""
+            async with ui_lock:
+                if not data.get('is_in_inbox', False):
+                    data['is_in_inbox'] = True
+                    live_stats["inbox"] += 1
+                    if data.get('is_unread'):
+                        live_stats["unread"] += 1
+                    if data.get('is_starred'):
+                        live_stats["starred"] += 1
+                update_stats_display()
+            await asyncio.sleep(0)
+
         async def _do_restore_email(data):
             """Restore: remove card from Trash view; the email moves back to Inbox."""
             email_id = data['id']
@@ -721,6 +736,9 @@ def main(page: ft.Page):
             if current_view == "trash":
                 await _do_restore_email(data)
                 await _call_with_ssl_retry(restore_email, data['id'])
+            elif current_view == "all_mail":
+                await _do_unarchive_email(data)
+                await _call_with_ssl_retry(unarchive_email, data['id'])
             else:
                 await _do_archive_email(data)
                 await _call_with_ssl_retry(archive_email, data['id'])
@@ -953,6 +971,10 @@ def main(page: ft.Page):
                 await _do_archive_email(data)
                 await _call_with_ssl_retry(archive_email, email_id)
 
+            async def on_unarchive(e, card_ref):
+                await _do_unarchive_email(data)
+                await _call_with_ssl_retry(unarchive_email, email_id)
+
             async def on_trash(e, card_ref):
                 await _do_trash_email(data)
                 await _call_with_ssl_retry(trash_email, email_id)
@@ -1053,7 +1075,7 @@ def main(page: ft.Page):
                                         [
                                             ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
                                         ] if card_mode == "sent" else
-                                        # ── All Mail: Read + Star + Trash (no Archive) ──
+                                        # ── All Mail: Read + Star + Move to Inbox + Trash ──
                                         [
                                             ft.Text(data['time'], color=ft.Colors.OUTLINE, size=12),
                                             ft.IconButton(
@@ -1064,6 +1086,14 @@ def main(page: ft.Page):
                                                 on_click=lambda e: page.run_task(on_mark_read, e),
                                             ),
                                             _card_star_btn,
+                                            ft.IconButton(
+                                                icon=ft.Icons.MOVE_TO_INBOX,
+                                                icon_size=18,
+                                                padding=ft.Padding.all(2),
+                                                icon_color=ft.Colors.GREEN_400,
+                                                tooltip="Move to Inbox",
+                                                on_click=lambda e: page.run_task(on_unarchive, e, card_ref[0]),
+                                            ),
                                             ft.IconButton(
                                                 icon=ft.Icons.DELETE,
                                                 icon_size=18,
