@@ -20,8 +20,8 @@ from src.config_manager import (
 )
 
 _OPTIONS_FILE   = os.path.join(os.path.dirname(__file__), "preference_options.json")
-_LABEL_WIDTH    = 120
-_GENDER_OPTIONS = [("男", "male"), ("女", "female"), ("不透露", "undisclosed")]
+_LABEL_WIDTH    = 140
+_GENDER_OPTIONS = [("Male", "male"), ("Female", "female"), ("Prefer not to say", "undisclosed")]
 
 
 def _load_options() -> dict:
@@ -195,6 +195,7 @@ def build_account_tab(page: ft.Page) -> SimpleNamespace:
             size=17,
             color=ft.Colors.GREY_200,
             weight=ft.FontWeight.W_500,
+            no_wrap=True,
         )
 
     def _field_row(label_text: str, widget: ft.Control) -> ft.Row:
