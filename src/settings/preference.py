@@ -1,6 +1,6 @@
 """
 preference.py
-Builds the Preference settings tab — Interests & Hobbies only.
+Builds the Preference settings tab — 20 IAB categories × 5 interest chips.
 """
 
 import json
@@ -13,6 +13,11 @@ from src.config_manager import get_selected_interests, save_selected_interests
 
 _OPTIONS_FILE = os.path.join(os.path.dirname(__file__), "preference_options.json")
 
+_CAT_LABEL_WIDTH = 152   # fixed width for the left category column
+_CHIP_HEIGHT      = 42
+_CHIP_SPACING     = 5
+_ROW_SPACING      = 6
+
 
 def _load_options() -> dict:
     try:
@@ -23,97 +28,21 @@ def _load_options() -> dict:
         return {}
 
 
+def _icon(name: str) -> str:
+    return getattr(ft.Icons, name, ft.Icons.LABEL)
+
+
 def build_preference_tab(page: ft.Page) -> SimpleNamespace:
     options = _load_options()
+    categories = options.get("categories", [])
 
     # ---- state ----
-    _selected_ids:    set[str] = set(get_selected_interests())
-    _saved_interests: list[set] = [set(_selected_ids)]
+    _selected_ids: set[str] = set(get_selected_interests())
 
-    # ---- save button (declared early so helpers can reference it) ----
-    _save_btn = ft.ElevatedButton(
-        "Save",
-        icon=ft.Icons.SAVE,
-        disabled=True,
-        style=ft.ButtonStyle(
-            bgcolor={"": ft.Colors.GREY_800},
-            color={"": ft.Colors.GREY_600},
-            padding=ft.Padding.symmetric(horizontal=24, vertical=12),
-            shape=ft.RoundedRectangleBorder(radius=8),
-        ),
-    )
+    def _autosave():
+        save_selected_interests(list(_selected_ids))
 
-    # ---- chip grid layout constants ----
-    # Chips use expand=True + spacing=4 to mirror the settings tab bar exactly,
-    # so every chip column aligns with the tab buttons above it.
-    _CHIPS_PER_ROW = 5
-    _CHIP_SPACING  = 4
-
-    # ---- helpers ----
-
-    def _update_save_btn():
-        changed = _selected_ids != _saved_interests[0]
-        _save_btn.disabled = not changed
-        _save_btn.style = ft.ButtonStyle(
-            bgcolor={"": ft.Colors.BLUE_700 if changed else ft.Colors.GREY_800},
-            color={"": ft.Colors.WHITE   if changed else ft.Colors.GREY_600},
-            padding=ft.Padding.symmetric(horizontal=24, vertical=12),
-            shape=ft.RoundedRectangleBorder(radius=8),
-        )
-        page.update()
-
-    # ---- icon mapping (one Material icon per interest id) ----
-    _INTEREST_ICONS: dict[str, str] = {
-        "ai_ml":          ft.Icons.PSYCHOLOGY,
-        "mobile":         ft.Icons.PHONE_ANDROID,
-        "webdev":         ft.Icons.WEB,
-        "coding_hobby":   ft.Icons.CODE,
-        "opensource":     ft.Icons.HUB,
-        "gaming":         ft.Icons.SPORTS_ESPORTS,
-        "anime":          ft.Icons.COLLECTIONS,
-        "boardgame":      ft.Icons.EXTENSION,
-        "crypto":         ft.Icons.MONETIZATION_ON,
-        "investing":      ft.Icons.SHOW_CHART,
-        "startup":        ft.Icons.ROCKET_LAUNCH,
-        "science":        ft.Icons.SCIENCE,
-        "politics":       ft.Icons.ACCOUNT_BALANCE,
-        "language":       ft.Icons.TRANSLATE,
-        "sustainability": ft.Icons.ECO,
-        "volunteering":   ft.Icons.VOLUNTEER_ACTIVISM,
-        "sports":         ft.Icons.SPORTS,
-        "film":           ft.Icons.MOVIE,
-        "literature":     ft.Icons.MENU_BOOK,
-        "writing":        ft.Icons.EDIT,
-        "theater":        ft.Icons.THEATER_COMEDY,
-        "music":          ft.Icons.MUSIC_NOTE,
-        "instrument":     ft.Icons.PIANO,
-        "singing":        ft.Icons.MIC,
-        "drawing":        ft.Icons.BRUSH,
-        "video_edit":     ft.Icons.MOVIE_FILTER,
-        "photo":          ft.Icons.CAMERA_ALT,
-        "dance":          ft.Icons.SELF_IMPROVEMENT,
-        "travel":         ft.Icons.FLIGHT,
-        "food":           ft.Icons.RESTAURANT,
-        "fashion":        ft.Icons.STYLE,
-        "coffee":         ft.Icons.LOCAL_CAFE,
-        "hiking":         ft.Icons.TERRAIN,
-        "rock_climbing":  ft.Icons.LANDSCAPE,
-        "cycling":        ft.Icons.DIRECTIONS_BIKE,
-        "running":        ft.Icons.DIRECTIONS_RUN,
-        "gym":            ft.Icons.FITNESS_CENTER,
-        "yoga":           ft.Icons.SPA,
-        "swimming":       ft.Icons.POOL,
-        "martial_arts":   ft.Icons.SPORTS_KABADDI,
-        "badminton":      ft.Icons.SPORTS_TENNIS,
-        "basketball":     ft.Icons.SPORTS_BASKETBALL,
-        "volleyball":     ft.Icons.SPORTS_VOLLEYBALL,
-        "table_tennis":   ft.Icons.SPORTS_TENNIS,
-        "chess":          ft.Icons.GRID_ON,
-        "handcraft":      ft.Icons.HANDYMAN,
-        "plants":         ft.Icons.YARD,
-        "pets":           ft.Icons.PETS,
-    }
-
+    # ---- chip appearance helpers ----
     def _chip_bgcolor(sel: bool):
         return (ft.Colors.with_opacity(0.75, ft.Colors.BLUE_400) if sel
                 else ft.Colors.with_opacity(0.06, ft.Colors.WHITE))
@@ -125,117 +54,114 @@ def build_preference_tab(page: ft.Page) -> SimpleNamespace:
     def _chip_color(sel: bool):
         return ft.Colors.WHITE if sel else ft.Colors.GREY_300
 
-    def _make_chip(option_id: str, label: str) -> ft.Container:
-        is_sel    = option_id in _selected_ids
-        icon_name = _INTEREST_ICONS.get(option_id, ft.Icons.LABEL)
+    # ---- single interest chip ----
+    def _make_chip(interest: dict) -> ft.Container:
+        iid   = interest["id"]
+        label = interest["label"]
+        is_sel = iid in _selected_ids
 
-        icon_widget = ft.Icon(icon_name, size=14, color=_chip_color(is_sel))
+        icon_widget = ft.Icon(_icon(interest.get("icon", "LABEL")), size=16, color=_chip_color(is_sel))
         label_text  = ft.Text(
             label,
-            size=12,
+            size=14,
             color=_chip_color(is_sel),
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
             no_wrap=True,
             expand=True,
         )
-        btn = ft.Container(
+        chip = ft.Container(
             expand=True,
-            height=36,
+            height=_CHIP_HEIGHT,
             border_radius=6,
             bgcolor=_chip_bgcolor(is_sel),
             border=_chip_border(is_sel),
-            padding=ft.Padding.symmetric(horizontal=8),
+            padding=ft.Padding.symmetric(horizontal=10),
             content=ft.Row(
                 [icon_widget, label_text],
-                spacing=10,
+                spacing=7,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
 
         def on_click(e):
-            sel = option_id in _selected_ids
+            sel = iid in _selected_ids
+            sel = not sel
             if sel:
-                _selected_ids.discard(option_id)
-                sel = False
+                _selected_ids.add(iid)
             else:
-                _selected_ids.add(option_id)
-                sel = True
-            btn.bgcolor       = _chip_bgcolor(sel)
-            btn.border        = _chip_border(sel)
-            icon_widget.color = _chip_color(sel)
-            label_text.color  = _chip_color(sel)
-            _update_save_btn()
+                _selected_ids.discard(iid)
+            chip.bgcolor       = _chip_bgcolor(sel)
+            chip.border        = _chip_border(sel)
+            icon_widget.color  = _chip_color(sel)
+            label_text.color   = _chip_color(sel)
+            _autosave()
             page.update()
 
-        btn.on_click = on_click
-        return btn
+        chip.on_click = on_click
+        return chip
 
-    # ---- interest chips — uniform grid ----
-    interest_chips = [
-        _make_chip(item["id"], item["label"])
-        for item in options.get("interest", [])
-    ]
+    # ---- empty slot placeholder (keeps column widths equal) ----
+    def _empty_slot() -> ft.Container:
+        return ft.Container(expand=True, height=_CHIP_HEIGHT)
 
-    # Group chips into rows of exactly _CHIPS_PER_ROW (last row may be shorter)
-    _chip_rows = [
-        ft.Row(
-            interest_chips[i : i + _CHIPS_PER_ROW],
-            spacing=_CHIP_SPACING,
-        )
-        for i in range(0, len(interest_chips), _CHIPS_PER_ROW)
-    ]
-    interest_grid = ft.Column(_chip_rows, spacing=_CHIP_SPACING)
+    # ---- one category row ----
+    def _make_category_row(cat: dict) -> ft.Row:
+        interests = cat.get("interests", [])
+        chips = []
+        for i in range(5):
+            chips.append(_make_chip(interests[i]) if i < len(interests) else _empty_slot())
 
-    interest_header_row = ft.Row(
-        [
-            ft.Text("Interests & Hobbies", size=18, weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.GREY_200),
-            ft.TextButton(
-                content=ft.Row(
-                    [ft.Icon(ft.Icons.ADD, size=14, color=ft.Colors.GREY_600),
-                     ft.Text("Add Custom", size=12, color=ft.Colors.GREY_600)],
-                    spacing=4,
-                    tight=True,
-                ),
-                disabled=True,   # TODO: Step 5 — AI keyword generation
-                tooltip="Coming soon",
-                style=ft.ButtonStyle(
-                    overlay_color={"": ft.Colors.TRANSPARENT},
-                    padding=ft.Padding.all(0),
-                ),
+        label_col = ft.Container(
+            width=_CAT_LABEL_WIDTH,
+            content=ft.Row(
+                [
+                    ft.Icon(_icon(cat.get("icon", "LABEL")), size=18, color=ft.Colors.GREY_500),
+                    ft.Column(
+                        [
+                            ft.Text(
+                                cat["label"],
+                                size=14,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.GREY_200,
+                                no_wrap=True,
+                            ),
+                            ft.Text(
+                                cat["abbr"],
+                                size=10,
+                                color=ft.Colors.GREY_600,
+                                no_wrap=True,
+                            ),
+                        ],
+                        spacing=1,
+                        tight=True,
+                    ),
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-        ],
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-
-    # ---- save handler ----
-    def _on_save(e):
-        save_selected_interests(list(_selected_ids))
-        _saved_interests[0] = set(_selected_ids)
-        _update_save_btn()
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text("Preferences saved!", color=ft.Colors.WHITE),
-            duration=2000,
         )
-        page.snack_bar.open = True
-        page.update()
 
-    _save_btn.on_click = _on_save
+        chip_row = ft.Row(chips, spacing=_CHIP_SPACING, expand=True)
+
+        return ft.Row(
+            [label_col, chip_row],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    # ---- assemble all rows ----
+    category_rows = [_make_category_row(cat) for cat in categories]
+    interest_grid = ft.Column(category_rows, spacing=_ROW_SPACING)
 
     # ---- layout ----
     content = ft.Container(
         expand=True,
         padding=ft.Padding.only(top=16),
         content=ft.Column(
-            [
-                interest_grid,
-                ft.Container(expand=True),
-                ft.Row([_save_btn], alignment=ft.MainAxisAlignment.END),
-            ],
+            [interest_grid],
             expand=True,
-            spacing=10,
+            spacing=0,
             scroll=ft.ScrollMode.AUTO,
         ),
     )

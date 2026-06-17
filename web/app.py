@@ -1,0 +1,278 @@
+import os
+import sys
+import json
+import threading
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+os.chdir(PROJECT_ROOT)
+
+from flask import Flask, jsonify, request, render_template, Response, stream_with_context
+
+from src.gmail_reader import (
+    get_gmail_service, build_action_service,
+    fetch_and_analyze_emails, fetch_simple_emails,
+)
+from src.email_actions import (
+    mark_as_read, toggle_star, archive_email, unarchive_email,
+    trash_email, restore_email, permanent_delete_email,
+)
+from src.db_manager import (
+    get_cached_result, get_detail_analysis, save_detail_analysis, delete_analysis,
+)
+from src.email_parser import get_email_body
+from src.ai_agent import analyze_email_detail
+from src.calendar_db import (
+    init_calendar_db, add_custom_event, delete_event,
+    delete_events_by_email_id, get_all_events,
+)
+
+app = Flask(__name__)
+init_calendar_db()
+
+_svc_lock = threading.Lock()
+_svc = None
+
+def get_service():
+    global _svc
+    with _svc_lock:
+        if _svc is None:
+            _svc = get_gmail_service()
+        return _svc
+
+_user_email_cache = [None]
+_user_email_lock = threading.Lock()
+
+def get_cached_user_email():
+    with _user_email_lock:
+        if _user_email_cache[0] is None:
+            try:
+                profile = get_service().users().getProfile(userId='me').execute()
+                _user_email_cache[0] = profile.get('emailAddress', '')
+            except Exception:
+                _user_email_cache[0] = ''
+        return _user_email_cache[0]
+
+
+# ── Page ────────────────────────────────────────────────────────────────────
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+# ── User ────────────────────────────────────────────────────────────────────
+
+@app.route('/api/user')
+def api_user():
+    return jsonify({'email': get_cached_user_email()})
+
+
+# ── Email streaming (SSE) ────────────────────────────────────────────────────
+
+@app.route('/api/emails/stream')
+def stream_emails():
+    view = request.args.get('view', 'inbox')
+
+    def generate():
+        try:
+            svc = get_service()
+            if svc is None:
+                yield f"event: error\ndata: {json.dumps({'error': 'Not authenticated'})}\n\n"
+                return
+
+            if view == 'trash':
+                for email in fetch_simple_emails(svc, 'in:trash'):
+                    if '_next_page_token' not in email:
+                        yield f"data: {json.dumps(email)}\n\n"
+            else:
+                # Stream all emails; client-side splits into inbox/moodle/all_mail
+                for email in fetch_and_analyze_emails(svc):
+                    if '_next_page_token' in email:
+                        break
+                    yield f"data: {json.dumps(email)}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+        yield "event: done\ndata: {}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        content_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
+
+
+# ── Email detail ─────────────────────────────────────────────────────────────
+
+@app.route('/api/email/<email_id>/body')
+def api_email_body(email_id):
+    try:
+        svc = build_action_service()
+        msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
+        body = get_email_body(msg.get('payload', {}))
+        return jsonify({'body': body})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/analyze')
+def api_analyze(email_id):
+    try:
+        cached = get_detail_analysis(email_id)
+        if cached:
+            return jsonify(cached)
+        svc = build_action_service()
+        msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
+        body = get_email_body(msg.get('payload', {}))
+        meta = get_cached_result(email_id)
+        category = meta.get('category') if meta else None
+        result = analyze_email_detail(body, category=category)
+        if result:
+            save_detail_analysis(email_id, result)
+        return jsonify(result or {})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Email actions ─────────────────────────────────────────────────────────────
+
+@app.route('/api/email/<email_id>/mark_read', methods=['POST'])
+def api_mark_read(email_id):
+    try:
+        mark_as_read(build_action_service(), email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/star', methods=['POST'])
+def api_star(email_id):
+    try:
+        data = request.get_json() or {}
+        toggle_star(build_action_service(), email_id, data.get('starred', True))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/archive', methods=['POST'])
+def api_archive(email_id):
+    try:
+        archive_email(build_action_service(), email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/unarchive', methods=['POST'])
+def api_unarchive(email_id):
+    try:
+        unarchive_email(build_action_service(), email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/trash', methods=['POST'])
+def api_trash(email_id):
+    try:
+        trash_email(build_action_service(), email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/restore', methods=['POST'])
+def api_restore(email_id):
+    try:
+        restore_email(build_action_service(), email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/email/<email_id>/delete', methods=['POST'])
+def api_delete(email_id):
+    try:
+        permanent_delete_email(build_action_service(), email_id)
+        delete_analysis(email_id)
+        delete_events_by_email_id(email_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Calendar ──────────────────────────────────────────────────────────────────
+
+@app.route('/api/calendar/events')
+def api_calendar_get():
+    try:
+        return jsonify(get_all_events())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/calendar/events', methods=['POST'])
+def api_calendar_create():
+    try:
+        d = request.get_json() or {}
+        add_custom_event(
+            date_key=d.get('date_key', ''),
+            title=d.get('title', ''),
+            start_time=d.get('start_time', ''),
+            end_time=d.get('end_time', ''),
+            is_all_day=d.get('is_all_day', False),
+            color=d.get('color', ''),
+            notes=d.get('notes', ''),
+        )
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/calendar/events/<int:event_id>', methods=['DELETE'])
+def api_calendar_delete(event_id):
+    try:
+        delete_event(event_id)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+
+SETTINGS_PATH = os.path.join(PROJECT_ROOT, 'data', 'web_settings.json')
+
+def _load_web_settings():
+    if os.path.exists(SETTINGS_PATH):
+        with open(SETTINGS_PATH) as f:
+            return json.load(f)
+    return {}
+
+def _save_web_settings(s):
+    with open(SETTINGS_PATH, 'w') as f:
+        json.dump(s, f, indent=2)
+
+
+@app.route('/api/settings/theme')
+def api_get_theme():
+    return jsonify({'theme': _load_web_settings().get('theme', 'dark')})
+
+
+@app.route('/api/settings/theme', methods=['POST'])
+def api_set_theme():
+    try:
+        d = request.get_json() or {}
+        s = _load_web_settings()
+        s['theme'] = d.get('theme', 'dark')
+        _save_web_settings(s)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5001))
+    app.run(debug=True, port=port, threaded=True)

@@ -3,8 +3,7 @@
 # =========================
 credentials.json
 token.json
-data/config.json
-data/user_preferences.json
+data/
 
 # =========================
 # Python virtual environment and cache

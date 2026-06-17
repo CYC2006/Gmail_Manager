@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NCKU AInbox</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     App Shell
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <button id="sidebar-toggle" class="icon-btn" title="Toggle sidebar">
+        <span class="material-icons-round">menu</span>
+      </button>
+      <div class="sidebar-brand">
+        <span class="brand-title">NCKU AInbox</span>
+      </div>
+    </div>
+
+    <div class="sidebar-user">
+      <span class="material-icons-round user-icon">account_circle</span>
+      <span class="user-email" id="user-email">Loading…</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="inbox">
+        <span class="material-icons-round">inbox</span>
+        <span class="nav-label">Inbox</span>
+      </button>
+      <button class="nav-item" data-view="moodle">
+        <span class="material-icons-round">school</span>
+        <span class="nav-label">Moodle</span>
+      </button>
+      <button class="nav-item" data-view="calendar">
+        <span class="material-icons-round">calendar_month</span>
+        <span class="nav-label">Calendar</span>
+      </button>
+
+      <div class="sidebar-divider"></div>
+
+      <button class="nav-item" data-view="all_mail">
+        <span class="material-icons-round">all_inbox</span>
+        <span class="nav-label">All Mails</span>
+      </button>
+      <button class="nav-item" data-view="trash">
+        <span class="material-icons-round">delete</span>
+        <span class="nav-label">Trash</span>
+      </button>
+
+      <div class="sidebar-divider"></div>
+
+      <button class="nav-item" data-view="settings">
+        <span class="material-icons-round">settings</span>
+        <span class="nav-label">Settings</span>
+      </button>
+    </nav>
+  </aside>
+
+  <!-- ── Main content ──────────────────────────────────────────────────────── -->
+  <main id="main-content" class="main-content">
+
+    <!-- ─── Inbox / Moodle / All Mail / Trash view ─────────────────────────── -->
+    <section id="view-emails" class="view active">
+      <div class="content-header">
+        <div class="header-left">
+          <span class="material-icons-round header-icon" id="view-icon">inbox</span>
+          <h1 class="header-title" id="view-title">Inbox</h1>
+        </div>
+        <button class="icon-btn" id="refresh-btn" title="Refresh">
+          <span class="material-icons-round">refresh</span>
+        </button>
+      </div>
+
+      <!-- Stats bar -->
+      <div class="stats-bar" id="stats-bar">
+        <div class="stat-chip" id="stat-total">
+          <span class="material-icons-round">all_inbox</span>
+          <span class="stat-value" id="stat-total-val">--</span>
+        </div>
+        <div class="stat-chip" id="stat-unread">
+          <span class="material-icons-round">mark_email_unread</span>
+          <span class="stat-value" id="stat-unread-val">--</span>
+        </div>
+        <div class="stat-chip" id="stat-starred">
+          <span class="material-icons-round">star</span>
+          <span class="stat-value" id="stat-starred-val">--</span>
+        </div>
+      </div>
+
+      <!-- Loading indicator -->
+      <div class="loading-bar" id="loading-bar">
+        <div class="loading-bar-fill"></div>
+      </div>
+
+      <!-- Email list -->
+      <div id="email-list" class="email-list"></div>
+    </section>
+
+    <!-- ─── Calendar view ──────────────────────────────────────────────────── -->
+    <section id="view-calendar" class="view">
+      <div class="content-header">
+        <div class="header-left">
+          <span class="material-icons-round header-icon">calendar_month</span>
+          <h1 class="header-title">Calendar</h1>
+        </div>
+        <div class="cal-nav">
+          <button class="icon-btn" id="cal-prev"><span class="material-icons-round">chevron_left</span></button>
+          <span class="cal-month-label" id="cal-month-label">—</span>
+          <button class="icon-btn" id="cal-next"><span class="material-icons-round">chevron_right</span></button>
+          <button class="icon-btn" id="cal-today" title="Today"><span class="material-icons-round">today</span></button>
+        </div>
+      </div>
+
+      <div class="cal-dow-header">
+        <span class="dow sun">Sun</span>
+        <span class="dow">Mon</span>
+        <span class="dow">Tue</span>
+        <span class="dow">Wed</span>
+        <span class="dow">Thu</span>
+        <span class="dow">Fri</span>
+        <span class="dow sat">Sat</span>
+      </div>
+      <div class="cal-divider"></div>
+      <div id="cal-grid" class="cal-grid"></div>
+    </section>
+
+    <!-- ─── Settings view ──────────────────────────────────────────────────── -->
+    <section id="view-settings" class="view">
+      <div class="content-header">
+        <div class="header-left">
+          <span class="material-icons-round header-icon">settings</span>
+          <h1 class="header-title">Settings</h1>
+        </div>
+      </div>
+
+      <div class="settings-layout">
+        <nav class="settings-tab-bar">
+          <button class="stab active" data-stab="preference">
+            <span class="material-icons-round">tune</span>
+            <span>Preference</span>
+          </button>
+          <button class="stab" data-stab="appearance">
+            <span class="material-icons-round">palette</span>
+            <span>Appearance</span>
+          </button>
+          <button class="stab" data-stab="account">
+            <span class="material-icons-round">manage_accounts</span>
+            <span>Account</span>
+          </button>
+          <button class="stab" data-stab="notifications">
+            <span class="material-icons-round">notifications</span>
+            <span>Notifications</span>
+          </button>
+          <button class="stab" data-stab="api_keys">
+            <span class="material-icons-round">key</span>
+            <span>API Keys</span>
+          </button>
+        </nav>
+
+        <div class="settings-content">
+          <!-- Preference -->
+          <div class="stab-panel active" id="stab-preference">
+            <p class="settings-placeholder">Preference settings coming soon…</p>
+          </div>
+
+          <!-- Appearance -->
+          <div class="stab-panel" id="stab-appearance">
+            <div class="appearance-section">
+              <h3 class="section-title">Theme</h3>
+              <div class="theme-options">
+                <label class="theme-option" id="theme-dark-option">
+                  <input type="radio" name="theme" value="dark" checked />
+                  <div class="theme-preview dark-preview">
+                    <div class="tp-sidebar"></div>
+                    <div class="tp-main">
+                      <div class="tp-card"></div>
+                      <div class="tp-card"></div>
+                    </div>
+                  </div>
+                  <span>Dark</span>
+                </label>
+                <label class="theme-option" id="theme-light-option">
+                  <input type="radio" name="theme" value="light" />
+                  <div class="theme-preview light-preview">
+                    <div class="tp-sidebar"></div>
+                    <div class="tp-main">
+                      <div class="tp-card"></div>
+                      <div class="tp-card"></div>
+                    </div>
+                  </div>
+                  <span>Light</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account -->
+          <div class="stab-panel" id="stab-account">
+            <p class="settings-placeholder">Account settings coming soon…</p>
+          </div>
+
+          <!-- Notifications -->
+          <div class="stab-panel" id="stab-notifications">
+            <p class="settings-placeholder">Notification settings coming soon…</p>
+          </div>
+
+          <!-- API Keys -->
+          <div class="stab-panel" id="stab-api_keys">
+            <p class="settings-placeholder">API key management coming soon…</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Email Detail Modal
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-backdrop" class="modal-backdrop hidden">
+  <div id="modal-box" class="modal-box">
+    <div class="modal-header">
+      <h2 class="modal-subject" id="modal-subject"></h2>
+      <div class="modal-actions">
+        <button class="icon-btn modal-action-btn" id="modal-star-btn" title="Star">
+          <span class="material-icons-round">star_border</span>
+        </button>
+        <button class="icon-btn modal-action-btn" id="modal-archive-btn" title="Archive">
+          <span class="material-icons-round">archive</span>
+        </button>
+        <button class="icon-btn modal-action-btn danger" id="modal-trash-btn" title="Trash">
+          <span class="material-icons-round">delete</span>
+        </button>
+        <button class="icon-btn" id="modal-close-btn" title="Close">
+          <span class="material-icons-round">close</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="modal-meta">
+      <span class="modal-sender" id="modal-sender"></span>
+      <span class="modal-time" id="modal-time"></span>
+    </div>
+
+    <div class="modal-divider"></div>
+
+    <div class="modal-body-area">
+      <!-- Raw tab -->
+      <div class="modal-tab-content active" id="tab-raw">
+        <div class="modal-body-loading" id="body-loading">
+          <span class="material-icons-round spinning">sync</span> Loading…
+        </div>
+        <pre class="modal-body-text" id="modal-body-text"></pre>
+      </div>
+      <!-- AI tab -->
+      <div class="modal-tab-content" id="tab-ai">
+        <div class="ai-loading" id="ai-loading">
+          <span class="material-icons-round spinning">auto_awesome</span> Analysing…
+        </div>
+        <div class="ai-result" id="ai-result"></div>
+      </div>
+    </div>
+
+    <div class="modal-divider"></div>
+
+    <div class="modal-footer">
+      <a class="icon-btn" id="modal-gmail-link" href="#" target="_blank" title="Open in Gmail">
+        <span class="material-icons-round">open_in_new</span>
+      </a>
+      <div class="tab-switcher">
+        <button class="tab-btn active" id="tab-raw-btn">
+          <span class="material-icons-round">article</span>
+        </button>
+        <button class="tab-btn" id="tab-ai-btn">
+          <span class="material-icons-round">auto_awesome</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Create Calendar Event Modal
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="ce-backdrop" class="modal-backdrop hidden">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-header">
+      <h2 style="font-size:1.1rem">New Event</h2>
+      <button class="icon-btn" id="ce-close-btn"><span class="material-icons-round">close</span></button>
+    </div>
+    <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:12px" id="ce-date-label"></div>
+
+    <div class="ce-field">
+      <label class="ce-label">Title</label>
+      <input class="ce-input" type="text" id="ce-title" placeholder="Event title…" />
+      <span class="ce-error" id="ce-title-error"></span>
+    </div>
+
+    <div class="ce-type-row">
+      <button class="ce-type-btn active" id="ce-timed-btn">Timed</button>
+      <button class="ce-type-btn" id="ce-allday-btn">All day</button>
+    </div>
+
+    <div class="ce-time-row" id="ce-time-row">
+      <div class="ce-time-group">
+        <label class="ce-label">Start</label>
+        <div class="ce-time-selects">
+          <select class="ce-select" id="ce-start-h"></select>
+          <span class="ce-colon">:</span>
+          <select class="ce-select" id="ce-start-m"></select>
+        </div>
+      </div>
+      <div class="ce-time-group">
+        <label class="ce-label">End</label>
+        <div class="ce-time-selects">
+          <select class="ce-select" id="ce-end-h"></select>
+          <span class="ce-colon">:</span>
+          <select class="ce-select" id="ce-end-m"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="ce-field">
+      <label class="ce-label">Color</label>
+      <div class="ce-color-row" id="ce-color-row"></div>
+    </div>
+
+    <div class="ce-field">
+      <label class="ce-label">Notes</label>
+      <textarea class="ce-input ce-textarea" id="ce-notes" placeholder="Add details…" rows="3"></textarea>
+    </div>
+
+    <div class="ce-actions">
+      <button class="btn-secondary" id="ce-cancel-btn">Cancel</button>
+      <button class="btn-primary" id="ce-save-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
