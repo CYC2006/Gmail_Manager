@@ -21,7 +21,12 @@ from src.db_manager import (
     get_cached_result, get_detail_analysis, save_detail_analysis, delete_analysis,
 )
 from src.email_parser import get_email_body
-from src.ai_agent import analyze_email_detail
+from src.ai_agent import analyze_email_detail, verify_api_key, reload_keys
+from src.config_manager import (
+    load_user_prefs, save_user_prefs,
+    get_groq_api_keys, save_groq_api_keys,
+    get_selected_interests, save_selected_interests,
+)
 from src.calendar_db import (
     init_calendar_db, add_custom_event, delete_event,
     delete_events_by_email_id, get_all_events,
@@ -269,6 +274,90 @@ def api_set_theme():
         s['theme'] = d.get('theme', 'dark')
         _save_web_settings(s)
         return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/options')
+def api_settings_options():
+    try:
+        opts_path = os.path.join(PROJECT_ROOT, 'src', 'settings', 'preference_options.json')
+        with open(opts_path, encoding='utf-8') as f:
+            return jsonify(json.load(f))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/profile')
+def api_get_profile():
+    p = load_user_prefs()
+    return jsonify({
+        'name':   p.get('user_name', ''),
+        'gender': p.get('user_gender', ''),
+        'major':  p.get('selected_major', ''),
+        'gmail':  p.get('gmail_account', ''),
+    })
+
+
+@app.route('/api/settings/profile', methods=['POST'])
+def api_save_profile():
+    try:
+        d = request.get_json() or {}
+        p = load_user_prefs()
+        p['user_name']     = d.get('name', p.get('user_name', ''))
+        p['user_gender']   = d.get('gender', p.get('user_gender', ''))
+        p['selected_major'] = d.get('major', p.get('selected_major', ''))
+        p['gmail_account'] = d.get('gmail', p.get('gmail_account', ''))
+        save_user_prefs(p)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/interests')
+def api_get_interests():
+    return jsonify({'interests': get_selected_interests()})
+
+
+@app.route('/api/settings/interests', methods=['POST'])
+def api_save_interests():
+    try:
+        d = request.get_json() or {}
+        save_selected_interests(d.get('interests', []))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/api-keys')
+def api_get_keys():
+    keys = get_groq_api_keys()
+    return jsonify({'keys': keys if keys else ['']})
+
+
+@app.route('/api/settings/api-keys', methods=['POST'])
+def api_save_keys():
+    try:
+        d = request.get_json() or {}
+        keys = [k.strip() for k in d.get('keys', []) if k.strip()]
+        results = []
+        for key in keys:
+            status = verify_api_key(key)
+            results.append({'key': key, 'status': status})
+        verified = [r['key'] for r in results if r['status'] == 'verified']
+        save_groq_api_keys(verified)
+        reload_keys()
+        return jsonify({'ok': True, 'results': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/api-keys/verify', methods=['POST'])
+def api_verify_key():
+    try:
+        d = request.get_json() or {}
+        key = d.get('key', '').strip()
+        return jsonify({'status': verify_api_key(key)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

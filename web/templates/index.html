@@ -171,7 +171,9 @@
         <div class="settings-content">
           <!-- Preference -->
           <div class="stab-panel active" id="stab-preference">
-            <p class="settings-placeholder">Preference settings coming soon…</p>
+            <div id="pref-grid" class="pref-grid">
+              <div class="pref-loading">Loading interests…</div>
+            </div>
           </div>
 
           <!-- Appearance -->
@@ -207,7 +209,53 @@
 
           <!-- Account -->
           <div class="stab-panel" id="stab-account">
-            <p class="settings-placeholder">Account settings coming soon…</p>
+            <div class="sform">
+              <h3 class="sform-title">Profile</h3>
+              <div class="sform-divider"></div>
+
+              <div class="sform-row">
+                <label class="sform-label">Name</label>
+                <div class="sform-right">
+                  <input class="sform-input" type="text" id="acc-name" placeholder="Enter your name…" />
+                </div>
+              </div>
+
+              <div class="sform-row">
+                <label class="sform-label">Gender</label>
+                <div class="sform-right">
+                  <div class="gender-chips" id="gender-chips">
+                    <button class="gender-chip" data-value="male">Male</button>
+                    <button class="gender-chip" data-value="female">Female</button>
+                    <button class="gender-chip" data-value="undisclosed">Prefer not to say</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sform-row">
+                <label class="sform-label">Major</label>
+                <div class="sform-right">
+                  <select class="sform-select" id="acc-major">
+                    <option value="">Select your Major…</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="sform-row">
+                <label class="sform-label">Gmail Account</label>
+                <div class="sform-right">
+                  <input class="sform-input" type="email" id="acc-gmail" placeholder="your.email@gmail.com" />
+                </div>
+              </div>
+
+              <div class="sform-note">
+                <span class="material-icons-round" style="font-size:13px;vertical-align:middle">info_outline</span>
+                Gmail connection initialisation will be tied to this address in a future update.
+              </div>
+
+              <div class="sform-actions">
+                <button class="btn-primary" id="acc-save-btn" disabled>Save</button>
+              </div>
+            </div>
           </div>
 
           <!-- Notifications -->
@@ -217,7 +265,26 @@
 
           <!-- API Keys -->
           <div class="stab-panel" id="stab-api_keys">
-            <p class="settings-placeholder">API key management coming soon…</p>
+            <div class="sform">
+              <div class="api-keys-header">
+                <div style="display:flex;align-items:center;gap:14px">
+                  <h3 class="sform-title" style="margin:0">Groq API Keys</h3>
+                  <a class="get-key-link" href="https://console.groq.com/keys" target="_blank">Get a key ↗</a>
+                </div>
+                <div style="display:flex;gap:2px">
+                  <button class="icon-btn" id="api-minus-btn" disabled title="Remove last key">
+                    <span class="material-icons-round">remove_circle_outline</span>
+                  </button>
+                  <button class="icon-btn" id="api-plus-btn" title="Add a key">
+                    <span class="material-icons-round">add_circle_outline</span>
+                  </button>
+                </div>
+              </div>
+              <div id="api-keys-list" class="api-keys-list"></div>
+              <div class="sform-actions">
+                <button class="btn-primary" id="api-save-btn" disabled>Save &amp; Verify</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
