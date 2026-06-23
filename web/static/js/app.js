@@ -139,9 +139,12 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
 // ─── Shared SSE stream (inbox / moodle / all_mail) ───────────────────────────
 
+let _autoRetried = false;
+
 function startSharedStream() {
   sharedLoading = true;
   startLoading();
+  hideStreamError();
 
   const source = new EventSource('/api/emails/stream');
   sharedSse = source;
@@ -153,24 +156,43 @@ function startSharedStream() {
 
   source.addEventListener('done', () => {
     source.close();
-    sharedSse = null;
+    sharedSse     = null;
     sharedLoaded  = true;
     sharedLoading = false;
+    _autoRetried  = false;
     stopLoading();
   });
 
   source.addEventListener('error', ev => {
-    if (ev.data) showError(JSON.parse(ev.data).error || 'Stream error');
     source.close();
     sharedSse     = null;
     sharedLoading = false;
     stopLoading();
+    if (ev.data) {
+      const msg = JSON.parse(ev.data).error || 'Stream error';
+      const isTransient = /ssl|connection|timeout|network/i.test(msg);
+      if (isTransient && !_autoRetried) {
+        _autoRetried = true;
+        setTimeout(() => { sharedLoaded = false; startSharedStream(); }, 2000);
+        showStreamError('Connection error — retrying…', false);
+      } else {
+        showStreamError(msg, true);
+      }
+    }
   });
 
-  source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) {
+  // Browser-level SSE disconnect (not a custom event: error)
+  source.onerror = ev => {
+    if (!ev.data && source.readyState === EventSource.CLOSED) {
       sharedLoading = false;
       stopLoading();
+      if (!_autoRetried) {
+        _autoRetried = true;
+        setTimeout(() => { sharedLoaded = false; startSharedStream(); }, 2000);
+        showStreamError('Connection lost — retrying…', false);
+      } else {
+        showStreamError('Could not connect to server. Check your network and retry.', true);
+      }
     }
   };
 }
@@ -253,6 +275,7 @@ function refreshCurrentView() {
     if (sharedSse) { sharedSse.close(); sharedSse = null; }
     sharedLoaded  = false;
     sharedLoading = false;
+    _autoRetried  = false;
     for (const v of ['inbox', 'moodle', 'all_mail']) {
       viewListEls[v].innerHTML = '';
       viewStats[v] = { total: 0, unread: 0, starred: 0 };
@@ -838,12 +861,31 @@ async function apiPost(url, body = null) {
   catch (err) { console.error('apiPost', url, err); }
 }
 
-function showError(msg) {
-  const el = document.createElement('div');
-  el.style.cssText = 'padding:20px;color:var(--danger);text-align:center';
-  el.textContent = msg;
-  viewListEls[state.currentView]?.appendChild(el);
+const streamErrorBanner = $('stream-error-banner');
+const streamErrorMsg    = $('stream-error-msg');
+const streamRetryBtn    = $('stream-retry-btn');
+const streamDismissBtn  = $('stream-error-dismiss');
+
+streamRetryBtn.addEventListener('click', () => {
+  _autoRetried = false;
+  sharedLoaded = false;
+  sharedSse?.close();
+  sharedSse = null;
+  for (const v of VIEW_KEYS.filter(v => v !== 'trash')) {
+    viewListEls[v].innerHTML = '';
+    viewStats[v] = { total: 0, unread: 0, starred: 0 };
+  }
+  updateStatsDisplay(state.currentView);
+  startSharedStream();
+});
+streamDismissBtn.addEventListener('click', hideStreamError);
+
+function showStreamError(msg, showRetry = true) {
+  streamErrorMsg.textContent = msg;
+  streamRetryBtn.hidden = !showRetry;
+  streamErrorBanner.hidden = false;
 }
+function hideStreamError() { streamErrorBanner.hidden = true; }
 
 // ─── CSS fix: email-list wrapper needs to not scroll itself ───────────────────
 // The per-view children handle their own scroll.
