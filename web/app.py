@@ -91,11 +91,18 @@ def stream_emails():
                     if '_next_page_token' not in email:
                         yield f"data: {json.dumps(email)}\n\n"
             else:
-                # Stream all emails; client-side splits into inbox/moodle/all_mail
-                for email in fetch_and_analyze_emails(svc):
-                    if '_next_page_token' in email:
+                # Stream emails across pages; client-side splits into inbox/moodle/all_mail
+                page_token = None
+                for _ in range(10):  # max 10 pages = 500 emails
+                    has_more = False
+                    for email in fetch_and_analyze_emails(svc, page_token=page_token):
+                        if '_next_page_token' in email:
+                            page_token = email['_next_page_token']
+                            has_more = True
+                        else:
+                            yield f"data: {json.dumps(email)}\n\n"
+                    if not has_more:
                         break
-                    yield f"data: {json.dumps(email)}\n\n"
 
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
