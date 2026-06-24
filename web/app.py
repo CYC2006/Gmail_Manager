@@ -135,21 +135,26 @@ def api_analyze(email_id):
     try:
         cached = get_detail_analysis(email_id)
         if cached:
+            print(f"[ANALYZE] Cache hit for {email_id}")
             return jsonify(cached)
         svc = build_action_service()
         msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
         body = get_email_body(msg.get('payload', {}))
+        print(f"[ANALYZE] email_id={email_id} body_len={len(body) if body else 0} body_preview={repr(body[:120]) if body else 'EMPTY'}")
         meta = get_cached_result(email_id)
         category = meta.get('category') if meta else None
         result = analyze_email_detail(body, category=category)
         if result is None:
+            print("[ANALYZE] First attempt returned None — retrying in 3s")
             time.sleep(3)
             result = analyze_email_detail(body, category=category)
         if result:
             save_detail_analysis(email_id, result)
             return jsonify(result)
+        print("[ANALYZE] Both attempts failed — returning _failed")
         return jsonify({'_failed': True})
     except Exception as e:
+        print(f"[ANALYZE] Exception: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -384,6 +389,28 @@ def api_verify_key():
         return jsonify({'status': verify_api_key(key)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/debug/ai')
+def api_debug_ai():
+    """Diagnostic endpoint — tests Groq connectivity with a minimal prompt."""
+    from src.ai_agent import _AVAILABLE_KEYS, TPD_EXHAUSTED, _call_groq
+    n_keys = len(_AVAILABLE_KEYS)
+    test_raw = None
+    test_error = None
+    try:
+        test_raw = _call_groq(
+            messages=[{"role": "user", "content": "Reply with exactly: {\"ok\": true}"}],
+            max_tokens=20,
+        )
+    except Exception as e:
+        test_error = str(e)
+    return jsonify({
+        'n_keys': n_keys,
+        'TPD_EXHAUSTED': TPD_EXHAUSTED,
+        'test_raw': test_raw,
+        'test_error': test_error,
+    })
 
 
 if __name__ == '__main__':

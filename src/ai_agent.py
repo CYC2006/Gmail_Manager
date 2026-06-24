@@ -72,13 +72,14 @@ def _try_switch_key() -> bool:
     """Switch to the next available key. Returns True if switched, False if all keys exhausted."""
     global _current_key_idx, TPD_EXHAUSTED
     with _key_lock:
+        total    = len(_AVAILABLE_KEYS)
         next_idx = _current_key_idx + 1
-        if next_idx < len(_AVAILABLE_KEYS):
+        if next_idx < total:
             _current_key_idx = next_idx
-            print(f"[KEY] Switched to API key {_current_key_idx + 1}")
+            print(f"[KEY] Switching to key {next_idx + 1}/{total}")
             return True
         TPD_EXHAUSTED = True
-    print(f"[KEY] All API key(s) exhausted — stopping AI analysis.")
+    print(f"[KEY] All {total} key(s) daily token limit exhausted — AI calls stopped")
     return False
 
 
@@ -122,7 +123,7 @@ TPD_EXHAUSTED = False  # set True when daily token limit is hit; stops all furth
 def _print_tpd_429(msg) -> bool:
     """
     If this is a per-day token 429:
-      - Print a clean debug line with usage stats.
+      - Print a clear per-key exhaustion notice with usage stats.
       - Attempt to switch to the next API key.
     Returns True if ALL keys are now exhausted (caller should break),
     or False if a new key is available (caller should try the next key).
@@ -130,20 +131,20 @@ def _print_tpd_429(msg) -> bool:
     """
     if "tokens per day" not in msg.lower():
         return False
+    with _key_lock:
+        key_no = _current_key_idx + 1
+        total  = len(_AVAILABLE_KEYS)
     limit_match = _re.search(r"Limit (\d+)", msg)
     used_match  = _re.search(r"Used (\d+)",  msg)
     reset_match = _re.search(r"try again in (.+?)\.", msg)
-    key_label   = f"key{_current_key_idx + 1}"
+    reset = reset_match.group(1) if reset_match else "unknown"
     if limit_match and used_match:
-        limit     = int(limit_match.group(1))
-        used      = int(used_match.group(1))
-        remaining = limit - used
-        pct       = int(used / limit * 100)
-        reset     = reset_match.group(1) if reset_match else "unknown"
-        print(f"[DEBUG] [{key_label}] Tokens(daily) : {used:,} / {limit:,} used ({pct}%)  •  {remaining:,} remaining (resets in {reset})")
+        limit = int(limit_match.group(1))
+        used  = int(used_match.group(1))
+        pct   = int(used / limit * 100)
+        print(f"[KEY] Key {key_no}/{total} daily token limit reached: {used:,} / {limit:,} ({pct}%) — resets in {reset}")
     else:
-        print(f"[DEBUG] [{key_label}] Daily token limit hit (could not parse usage).")
-    # Try switching to the next key
+        print(f"[KEY] Key {key_no}/{total} daily token limit reached (usage unknown) — resets in {reset}")
     switched = _try_switch_key()
     return not switched  # True = all exhausted (break), False = switched (retry)
 
@@ -156,23 +157,30 @@ def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
     # Check TPD and compute rate-limit wait atomically
     with _key_lock:
         if TPD_EXHAUSTED:
+            print("[GROQ] TPD_EXHAUSTED — skipping call")
             return None
         elapsed = time.time() - LAST_API_CALL_TIME
         wait = MIN_INTERVAL - elapsed
         n_keys = len(_AVAILABLE_KEYS)
 
+    if n_keys == 0:
+        print("[GROQ] No API keys available — cannot call Groq")
+        return None
+
     # Sleep outside the lock so other threads are not blocked
     if wait > 0:
+        print(f"[GROQ] Rate-limit sleep {wait:.1f}s")
         time.sleep(wait)
 
-    for _ in range(n_keys):
+    for attempt in range(n_keys):
         try:
-            # Snapshot the current key under the lock, then release before the network call
             with _key_lock:
                 if TPD_EXHAUSTED:
                     break
-                client = Groq(api_key=_AVAILABLE_KEYS[_current_key_idx])
+                key_idx = _current_key_idx
+                client  = Groq(api_key=_AVAILABLE_KEYS[key_idx])
 
+            print(f"[GROQ] Calling model={MODEL} max_tokens={max_tokens} key_idx={key_idx}")
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
@@ -181,16 +189,19 @@ def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
             )
             with _key_lock:
                 LAST_API_CALL_TIME = time.time()
-            return response.choices[0].message.content.strip()
+            text = response.choices[0].message.content.strip()
+            print(f"[GROQ] OK — response length {len(text)} chars")
+            return text
 
         except Exception as e:
             error_msg = str(e)
+            print(f"[GROQ] Error (attempt {attempt+1}/{n_keys}): {error_msg[:200]}")
             if "429" in error_msg or "rate_limit" in error_msg.lower():
                 if _print_tpd_429(error_msg):
                     break  # all keys exhausted
-                # key switched → loop continues with next key
+                # per-minute 429: brief wait then retry same key
+                time.sleep(MIN_INTERVAL * 2)
             else:
-                print(f"[DEBUG] Groq API call failed: {e}")
                 break
 
     return None
@@ -254,6 +265,16 @@ def extract_moodle_events(email_body):
 def analyze_email_detail(email_body, category=None):
     """Run a full structured analysis of one email.
     Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
+    body_len = len(email_body) if email_body else 0
+    with _key_lock:
+        n_keys = len(_AVAILABLE_KEYS)
+        tpd    = TPD_EXHAUSTED
+    print(f"[DETAIL] analyze_email_detail called: body_len={body_len}, n_keys={n_keys}, TPD_EXHAUSTED={tpd}, category={category!r}")
+
+    if not email_body or body_len < 5:
+        print("[DETAIL] Email body is empty or too short — skipping AI call")
+        return None
+
     user_content = f"Email body:\n{email_body[:4000]}"
     if category:
         user_content = f"Email category: {category}\n\n{user_content}"
@@ -262,13 +283,17 @@ def analyze_email_detail(email_body, category=None):
             {"role": "system", "content": EMAIL_DETAIL_ANALYZE},
             {"role": "user",   "content": user_content},
         ],
-        max_tokens=1500,  # raised from 1000 — give model more room to close JSON cleanly
+        max_tokens=1500,
     )
     if raw is None:
+        print("[DETAIL] _call_groq returned None")
         return None
+    print(f"[DETAIL] _call_groq returned {len(raw)} chars; first 200: {raw[:200]!r}")
     obj = _extract_json(raw)
     if obj is None:
-        print(f"[DEBUG] Detail analysis: no JSON object found in response (first 400 chars): {raw[:400]}")
+        print(f"[DETAIL] _extract_json found no JSON object in response")
+    else:
+        print(f"[DETAIL] Parsed JSON keys: {list(obj.keys())}")
     return obj
 
 
