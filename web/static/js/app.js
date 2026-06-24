@@ -835,6 +835,11 @@ let selectedCeColor = CAL_COLORS[0].id;
 let ceIsAllDay = false;
 let ceDateKey  = '';
 
+const CAL_MONTH_NAMES = ['January','February','March','April','May','June',
+                         'July','August','September','October','November','December'];
+const CAL_MONTHS_BEFORE = 6;
+const CAL_MONTHS_AFTER  = 12;
+
 function loadCalendar() {
   fetch('/api/calendar/events')
     .then(r => r.json())
@@ -843,18 +848,11 @@ function loadCalendar() {
 }
 
 function renderCalendar() {
-  const { calYear: year, calMonth: month } = state;
-  const months = ['January','February','March','April','May','June',
-                  'July','August','September','October','November','December'];
-  $('cal-month-label').textContent = `${months[month]} ${year}`;
-
   const grid = $('cal-grid');
   grid.innerHTML = '';
 
-  const today        = new Date();
-  const firstDay     = new Date(year, month, 1).getDay();
-  const daysInMonth  = new Date(year, month + 1, 0).getDate();
-  const prevDays     = new Date(year, month, 0).getDate();
+  const today = new Date();
+  const { calYear, calMonth } = state;
 
   const byDate = {};
   for (const ev of state.calEvents) {
@@ -863,16 +861,74 @@ function renderCalendar() {
     byDate[dk].push(ev);
   }
 
+  for (let offset = -CAL_MONTHS_BEFORE; offset <= CAL_MONTHS_AFTER; offset++) {
+    let m = calMonth + offset;
+    let y = calYear;
+    while (m < 0)  { m += 12; y--; }
+    while (m > 11) { m -= 12; y++; }
+    grid.appendChild(renderMonthSection(y, m, byDate, today));
+  }
+
+  const todaySection = grid.querySelector(
+    `.cal-month-section[data-year="${today.getFullYear()}"][data-month="${today.getMonth()}"]`
+  );
+  if (todaySection) todaySection.scrollIntoView({ behavior: 'instant', block: 'start' });
+
+  updateCalMonthLabel();
+}
+
+function renderMonthSection(year, month, byDate, today) {
+  const section = document.createElement('div');
+  section.className = 'cal-month-section';
+  section.dataset.year  = year;
+  section.dataset.month = month;
+
+  const heading = document.createElement('div');
+  heading.className = 'cal-month-heading';
+  heading.textContent = `${CAL_MONTH_NAMES[month]} ${year}`;
+  section.appendChild(heading);
+
+  const mgrid = document.createElement('div');
+  mgrid.className = 'cal-month-grid';
+
+  const firstDay    = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevDays    = new Date(year, month, 0).getDate();
+
   for (let i = 0; i < firstDay; i++) {
-    grid.appendChild(calCell(year, month - 1, prevDays - firstDay + 1 + i, byDate, true));
+    mgrid.appendChild(calCell(year, month - 1, prevDays - firstDay + 1 + i, byDate, true));
   }
   for (let d = 1; d <= daysInMonth; d++) {
     const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-    grid.appendChild(calCell(year, month, d, byDate, false, isToday));
+    mgrid.appendChild(calCell(year, month, d, byDate, false, isToday));
   }
   const trailing = (firstDay + daysInMonth) % 7;
   for (let d = 1; d <= (trailing ? 7 - trailing : 0); d++) {
-    grid.appendChild(calCell(year, month + 1, d, byDate, true));
+    mgrid.appendChild(calCell(year, month + 1, d, byDate, true));
+  }
+
+  for (let i = 0; i < 7; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-blank-cell';
+    mgrid.appendChild(blank);
+  }
+
+  section.appendChild(mgrid);
+  return section;
+}
+
+function updateCalMonthLabel() {
+  const grid = $('cal-grid');
+  if (!grid) return;
+  const gridTop = grid.getBoundingClientRect().top;
+  const sections = grid.querySelectorAll('.cal-month-section');
+  let current = sections[0];
+  for (const s of sections) {
+    if (s.getBoundingClientRect().top <= gridTop + 40) current = s;
+  }
+  if (current) {
+    $('cal-month-label').textContent =
+      `${CAL_MONTH_NAMES[+current.dataset.month]} ${current.dataset.year}`;
   }
 }
 
@@ -914,21 +970,13 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
   return cell;
 }
 
-$('cal-prev').addEventListener('click', () => {
-  state.calMonth--;
-  if (state.calMonth < 0) { state.calMonth = 11; state.calYear--; }
-  renderCalendar();
-});
-$('cal-next').addEventListener('click', () => {
-  state.calMonth++;
-  if (state.calMonth > 11) { state.calMonth = 0; state.calYear++; }
-  renderCalendar();
-});
 $('cal-today').addEventListener('click', () => {
-  state.calYear = new Date().getFullYear();
+  state.calYear  = new Date().getFullYear();
   state.calMonth = new Date().getMonth();
   renderCalendar();
 });
+
+$('cal-grid').addEventListener('scroll', updateCalMonthLabel, { passive: true });
 
 // ─── Create event modal ───────────────────────────────────────────────────────
 
