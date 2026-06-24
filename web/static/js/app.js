@@ -536,7 +536,14 @@ function cardBtn(icon, title, extraClass, handler) {
   btn.className = `card-btn${extraClass ? ' ' + extraClass : ''}`;
   btn.title = title;
   btn.innerHTML = `<span class="material-icons-round">${icon}</span>`;
-  btn.addEventListener('click', e => { e.stopPropagation(); handler(); });
+  let inFlight = false;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (inFlight) return;
+    inFlight = true;
+    handler();
+    setTimeout(() => { inFlight = false; }, 500);
+  });
   return btn;
 }
 
@@ -673,18 +680,18 @@ function switchModalTab(tab) {
 }
 
 function loadAiAnalysis(email) {
-  email._aiLoaded = true;
   aiLoadingEl.classList.remove('hidden');
   aiResult.innerHTML = '';
   fetch(`/api/email/${email.id}/analyze`)
     .then(r => r.json())
     .then(d => {
+      email._aiLoaded = true;
       aiLoadingEl.classList.add('hidden');
       aiResult.innerHTML = d.error ? `<p>Error: ${escHtml(d.error)}</p>` : renderAiResult(d);
     })
     .catch(() => {
       aiLoadingEl.classList.add('hidden');
-      aiResult.textContent = '(Analysis failed.)';
+      aiResult.textContent = '(Analysis failed. Switch tabs to retry.)';
     });
 }
 
@@ -960,11 +967,26 @@ document.querySelectorAll('.stab').forEach(btn => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+let _toastTimer = null;
+function showToast(msg, durationMs = 3500) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.hidden = true; }, durationMs);
+}
+
 async function apiPost(url, body = null) {
   const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  try { return await (await fetch(url, opts)).json(); }
-  catch (err) { console.error('apiPost', url, err); }
+  try {
+    const data = await (await fetch(url, opts)).json();
+    if (data.error) showToast(`Error: ${data.error}`);
+    return data;
+  } catch (err) {
+    console.error('apiPost', url, err);
+    showToast('Network error — action may not have saved');
+  }
 }
 
 const streamErrorBanner = $('stream-error-banner');

@@ -257,15 +257,27 @@ def api_calendar_delete(event_id):
 
 SETTINGS_PATH = os.path.join(PROJECT_ROOT, 'data', 'web_settings.json')
 
+_web_settings_cache = None
+_web_settings_lock  = threading.Lock()
+
 def _load_web_settings():
-    if os.path.exists(SETTINGS_PATH):
-        with open(SETTINGS_PATH) as f:
-            return json.load(f)
-    return {}
+    global _web_settings_cache
+    with _web_settings_lock:
+        if _web_settings_cache is not None:
+            return dict(_web_settings_cache)
+        if os.path.exists(SETTINGS_PATH):
+            with open(SETTINGS_PATH) as f:
+                _web_settings_cache = json.load(f)
+        else:
+            _web_settings_cache = {}
+        return dict(_web_settings_cache)
 
 def _save_web_settings(s):
-    with open(SETTINGS_PATH, 'w') as f:
-        json.dump(s, f, indent=2)
+    global _web_settings_cache
+    with _web_settings_lock:
+        with open(SETTINGS_PATH, 'w') as f:
+            json.dump(s, f, indent=2)
+        _web_settings_cache = dict(s)
 
 
 @app.route('/api/settings/theme')
