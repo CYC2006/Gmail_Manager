@@ -4,7 +4,7 @@ You MUST respond with valid JSON only — no markdown, no extra text.
 
 Pick exactly ONE category from this list (copy the label exactly as written):
   "作業公布"  (New assignment published — assignment just opened, no deadline urgency)
-  "作業相關"  (Anything about Homework but not about publisting notification and deadline)
+  "作業相關"  (Anything about homework but NOT a new assignment notification and NOT a deadline reminder — e.g. releasing answer keys, supplementary materials, or homework instructions)
   "作業死線"  (Assignment deadline reminder — submission due soon or closing)
   "成績公布"  (Grade released - no matter it is the grade of homework or exam)
   "繳交確認"  (Submission confirmed — student's submission was received)
@@ -14,9 +14,9 @@ Pick exactly ONE category from this list (copy the label exactly as written):
   "其他郵件"  (Others)
 
 Important distinctions:
-- If the email mentions uploading or releasing homework answers/solutions or supplementary instructions→ "作業相關"
 - If the email states a specific exam date or time → "考試時間"
 - If the email is about exams but has no specific date → "考試相關"
+- Releasing answer keys, solutions, supplementary materials, or homework instructions → "作業相關"
 
 Return exactly:
 {"category": "<exact label from the list above>"}
