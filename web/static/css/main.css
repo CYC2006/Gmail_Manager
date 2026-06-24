@@ -274,7 +274,7 @@ a      { color: inherit; text-decoration: none; }
   font-size: .78rem;
   font-weight: 600;
 }
-#stat-total  { color: #b0bec5; }
+#stat-total  { color: var(--text-secondary); }
 #stat-unread { color: var(--accent); }
 #stat-starred{ color: var(--star-color); }
 .stat-chip .material-icons-round { font-size: 14px; }
@@ -671,6 +671,7 @@ a      { color: inherit; text-decoration: none; }
 }
 
 .modal-box {
+  position: relative;
   background: var(--bg-modal);
   border-radius: 14px;
   border: 1px solid var(--border-modal);
@@ -782,6 +783,55 @@ a      { color: inherit; text-decoration: none; }
 .tab-btn:hover  { background: var(--bg-hover); color: var(--text-primary); }
 .tab-btn.active { background: #1565c0; color: #fff; }
 [data-theme="dark"] .tab-btn.active { background: #1976d2; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AI mode — animated conic-gradient border
+══════════════════════════════════════════════════════════════════════════════ */
+
+@property --ai-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ai-border-spin {
+  to { --ai-angle: 360deg; }
+}
+
+.modal-glow-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+}
+
+.modal-glow-wrap::before,
+.modal-glow-wrap::after {
+  content: '';
+  position: absolute;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  border-radius: 18px;
+  background: conic-gradient(
+    from var(--ai-angle),
+    #d946ef, #8b5cf6, #3b82f6, #06b6d4, #10b981, #f59e0b, #d946ef
+  );
+  z-index: -1;
+  opacity: 0;
+  animation: ai-border-spin 4s linear infinite;
+}
+
+.modal-glow-wrap::before {
+  filter: blur(22px);
+}
+
+.modal-glow-wrap.ai-mode::after  { opacity: 1;   transition: opacity .4s ease; }
+.modal-glow-wrap.ai-mode::before { opacity: .55; transition: opacity .4s ease; }
+
+.modal-glow-wrap.ai-mode .modal-box { border-color: transparent; }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -919,43 +969,42 @@ a      { color: inherit; text-decoration: none; }
   flex: 1;
 }
 
-.pref-chip {
+/* shared toggle-chip base (pref-chip + gender-chip) */
+.pref-chip, .gender-chip {
   flex: 1;
-  height: 42px;
   border-radius: 6px;
   border: 1px solid rgba(255,255,255,.12);
   background: rgba(255,255,255,.04);
   color: var(--text-secondary);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.pref-chip:hover, .gender-chip:hover { border-color: rgba(255,255,255,.25); color: var(--text-primary); }
+.pref-chip.active, .gender-chip.active {
+  background: rgba(144,202,249,.18);
+  border-color: var(--accent);
+  color: #fff;
+}
+[data-theme="light"] .pref-chip,
+[data-theme="light"] .gender-chip { border-color: var(--border); background: var(--bg-chip); color: var(--text-secondary); }
+[data-theme="light"] .pref-chip.active,
+[data-theme="light"] .gender-chip.active { background: var(--bg-active); border-color: var(--accent); color: var(--accent); }
+
+/* pref-chip specifics */
+.pref-chip {
+  height: 42px;
   font-size: .8rem;
   font-weight: 500;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 0 8px;
-  transition: background .12s, border-color .12s, color .12s;
   white-space: nowrap;
   overflow: hidden;
 }
 .pref-chip .material-icons-round { font-size: 15px; flex-shrink: 0; }
 .pref-chip span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.pref-chip:hover  { border-color: rgba(255,255,255,.25); color: var(--text-primary); }
-.pref-chip.active {
-  background: rgba(144,202,249,.18);
-  border-color: var(--accent);
-  color: #fff;
-}
-[data-theme="light"] .pref-chip {
-  border-color: var(--border);
-  background: var(--bg-chip);
-  color: var(--text-secondary);
-}
-[data-theme="light"] .pref-chip.active {
-  background: var(--bg-active);
-  border-color: var(--accent);
-  color: var(--accent);
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Settings form (Account / API Keys)
@@ -1013,32 +1062,15 @@ a      { color: inherit; text-decoration: none; }
 
 /* Gender chips */
 .gender-chips { display: flex; gap: 8px; }
-.gender-chip {
-  flex: 1;
-  height: 36px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.04);
-  color: var(--text-secondary);
-  font-size: .83rem;
-  cursor: pointer;
-  transition: background .12s, border-color .12s, color .12s;
-}
-.gender-chip:hover  { border-color: rgba(255,255,255,.25); color: var(--text-primary); }
-.gender-chip.active {
-  background: rgba(144,202,249,.18);
-  border-color: var(--accent);
-  color: #fff;
-}
-[data-theme="light"] .gender-chip { border-color: var(--border); background: var(--bg-chip); }
-[data-theme="light"] .gender-chip.active { background: var(--bg-active); border-color: var(--accent); color: var(--accent); }
+/* gender-chip specifics (shared base declared with .pref-chip above) */
+.gender-chip { height: 36px; font-size: .83rem; }
 
 .sform-note {
   font-size: .75rem;
   color: var(--text-muted);
   font-style: italic;
   margin-bottom: 16px;
-  padding-left: 152px;
+  padding-left: calc(140px + 12px); /* label width + row gap */
 }
 
 .sform-actions { display: flex; justify-content: flex-end; padding-top: 4px; }

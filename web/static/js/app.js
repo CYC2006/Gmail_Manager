@@ -233,6 +233,8 @@ function startSharedStream() {
   };
 }
 
+const isMoodleEmail = email => Boolean(email.sender?.toLowerCase().includes('moodle'));
+
 function distributeEmail(email) {
   // all_mail gets every email
   addToView(email, 'all_mail');
@@ -241,7 +243,7 @@ function distributeEmail(email) {
   if (email.is_in_inbox) addToView(email, 'inbox');
 
   // moodle: emails from moodle
-  if (email.sender?.toLowerCase().includes('moodle')) addToView(email, 'moodle');
+  if (isMoodleEmail(email)) addToView(email, 'moodle');
 }
 
 // Sort key: higher value = newer = top of list.
@@ -413,7 +415,7 @@ function badgeEl(category) {
 // ─── Email card builder ───────────────────────────────────────────────────────
 
 function buildCard(email, view) {
-  const isMoodle  = email.sender?.toLowerCase().includes('moodle');
+  const isMoodle  = isMoodleEmail(email);
   const isMatched = email.matched_prefs?.length > 0;
 
   const card = document.createElement('div');
@@ -674,6 +676,7 @@ function switchModalTab(tab) {
   $('tab-ai').classList.toggle('active', tab === 'ai');
   $('tab-raw-btn').classList.toggle('active', tab === 'raw');
   $('tab-ai-btn').classList.toggle('active', tab === 'ai');
+  $('modal-glow-wrap').classList.toggle('ai-mode', tab === 'ai');
   if (tab === 'ai' && state.currentEmail && !state.currentEmail._aiLoaded) {
     loadAiAnalysis(state.currentEmail);
   }
@@ -781,11 +784,10 @@ modalArchiveBtn.addEventListener('click', () => {
     updateStatsDisplay('all_mail');
     apiPost(`/api/email/${email.id}/unarchive`);
   } else {
-    const isMoodle = email.sender?.toLowerCase().includes('moodle');
     removeCardFromView(email, 'inbox');
     removeCardFromView(email, 'moodle');
     adjustStats('inbox', email, -1);
-    if (isMoodle) adjustStats('moodle', email, -1);
+    if (isMoodleEmail(email)) adjustStats('moodle', email, -1);
     updateStatsDisplay(view);
     apiPost(`/api/email/${email.id}/archive`);
   }
@@ -960,7 +962,13 @@ function openCeModal(dateKey) {
   ceDateKey = dateKey;
   $('ce-date-label').textContent = dateKey;
   $('ce-title').value = ''; $('ce-notes').value = ''; $('ce-title-error').textContent = '';
-  setCeAllDay(false); selectedCeColor = CAL_COLORS[0].id; buildTimeSelects();
+  setCeAllDay(false);
+  $('ce-start-h').value = '09'; $('ce-end-h').value = '10';
+  $('ce-start-m').value = '00'; $('ce-end-m').value = '00';
+  selectedCeColor = CAL_COLORS[0].id;
+  document.querySelectorAll('.ce-color-dot').forEach((dot, i) => {
+    dot.classList.toggle('selected', i === 0);
+  });
   $('ce-backdrop').classList.add('open');
 }
 function closeCeModal() { $('ce-backdrop').classList.remove('open'); }
@@ -1005,6 +1013,10 @@ document.querySelectorAll('.stab').forEach(btn => {
     document.querySelectorAll('.stab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     $(`stab-${btn.dataset.stab}`).classList.add('active');
+    const tab = btn.dataset.stab;
+    if (tab === 'preference') loadPreferenceTab();
+    else if (tab === 'account')  loadAccountTab();
+    else if (tab === 'api_keys') loadApiKeysTab();
   });
 });
 
@@ -1219,9 +1231,11 @@ $('acc-major').addEventListener('change', e => {
 });
 
 function updateAccSaveBtn() {
-  const changed = JSON.stringify(_accCurrent) !== JSON.stringify(_accSaved);
-  const btn = $('acc-save-btn');
-  btn.disabled = !changed;
+  const changed = _accCurrent.name   !== _accSaved.name   ||
+                  _accCurrent.gender !== _accSaved.gender ||
+                  _accCurrent.major  !== _accSaved.major  ||
+                  _accCurrent.gmail  !== _accSaved.gmail;
+  $('acc-save-btn').disabled = !changed;
 }
 
 $('acc-save-btn').addEventListener('click', async () => {
@@ -1346,18 +1360,6 @@ $('api-save-btn').addEventListener('click', async () => {
     });
   }
   $('api-save-btn').disabled = false;
-});
-
-// ─── Hook tab switching to lazy-load settings data ────────────────────────────
-
-const _origStabClick = document.querySelectorAll('.stab');
-_origStabClick.forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.dataset.stab;
-    if (tab === 'preference') loadPreferenceTab();
-    if (tab === 'account')    loadAccountTab();
-    if (tab === 'api_keys')   loadApiKeysTab();
-  });
 });
 
 // Also load preference immediately since it's the default active tab
