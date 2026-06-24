@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import threading
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -141,9 +142,13 @@ def api_analyze(email_id):
         meta = get_cached_result(email_id)
         category = meta.get('category') if meta else None
         result = analyze_email_detail(body, category=category)
+        if result is None:
+            time.sleep(3)
+            result = analyze_email_detail(body, category=category)
         if result:
             save_detail_analysis(email_id, result)
-        return jsonify(result or {})
+            return jsonify(result)
+        return jsonify({'_failed': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

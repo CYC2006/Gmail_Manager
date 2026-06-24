@@ -85,16 +85,21 @@ def _try_switch_key() -> bool:
 # Prompts — loaded from txt files in src/prompts/
 def _extract_json(text: str) -> dict | None:
     """Extract the first complete JSON object from an arbitrary string.
-    Uses json.JSONDecoder.raw_decode() which finds the exact closing brace,
-    avoiding the greedy-regex pitfall of matching too much or too little."""
-    start = text.find('{')
-    if start == -1:
-        return None
-    try:
-        obj, _ = json.JSONDecoder().raw_decode(text, start)
-        return obj if isinstance(obj, dict) else None
-    except json.JSONDecodeError:
-        return None
+    Iterates through every '{' position so that preamble text containing
+    curly braces does not prevent finding the actual JSON payload."""
+    decoder = json.JSONDecoder()
+    pos = 0
+    while True:
+        start = text.find('{', pos)
+        if start == -1:
+            return None
+        try:
+            obj, _ = decoder.raw_decode(text, start)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+        pos = start + 1
 
 
 def _load_prompt(filename):

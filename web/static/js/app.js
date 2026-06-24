@@ -685,28 +685,71 @@ function loadAiAnalysis(email) {
   fetch(`/api/email/${email.id}/analyze`)
     .then(r => r.json())
     .then(d => {
-      email._aiLoaded = true;
       aiLoadingEl.classList.add('hidden');
-      aiResult.innerHTML = d.error ? `<p>Error: ${escHtml(d.error)}</p>` : renderAiResult(d);
+      if (d.error || d._failed) {
+        aiResult.innerHTML =
+          '<p style="color:var(--text-muted)">Analysis unavailable.</p>' +
+          '<button id="ai-retry-btn" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);cursor:pointer">Retry</button>';
+        const retryBtn = document.getElementById('ai-retry-btn');
+        if (retryBtn) retryBtn.addEventListener('click', () => {
+          email._aiLoaded = false;
+          loadAiAnalysis(email);
+        });
+      } else {
+        email._aiLoaded = true;
+        aiResult.innerHTML = renderAiResult(d);
+      }
     })
     .catch(() => {
       aiLoadingEl.classList.add('hidden');
-      aiResult.textContent = '(Analysis failed. Switch tabs to retry.)';
+      aiResult.innerHTML =
+        '<p style="color:var(--text-muted)">Analysis unavailable.</p>' +
+        '<button id="ai-retry-btn" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);cursor:pointer">Retry</button>';
+      const retryBtn = document.getElementById('ai-retry-btn');
+      if (retryBtn) retryBtn.addEventListener('click', () => {
+        email._aiLoaded = false;
+        loadAiAnalysis(email);
+      });
     });
 }
 
 function renderAiResult(data) {
-  if (!data || !Object.keys(data).length) return '<p>(No analysis available.)</p>';
-  const labels = { summary: 'Summary', category: 'Category', action_required: 'Action Required', event_time: 'Event Time', sender: 'Sender' };
+  if (!data || !Object.keys(data).length) return '<p style="color:var(--text-muted)">(No analysis available.)</p>';
   let html = '';
-  for (const [key, label] of Object.entries(labels)) {
-    if (data[key]) html += `<h4>${label}</h4><p>${escHtml(String(data[key]))}</p>`;
+
+  if (data.summary) {
+    html += `<h4>Summary</h4><p>${escHtml(data.summary)}</p>`;
   }
-  for (const [key, val] of Object.entries(data)) {
-    if (labels[key] || !val) continue;
-    html += `<h4>${escHtml(key)}</h4><p>${escHtml(String(val))}</p>`;
+
+  if (data.action_required) {
+    html += `<h4>Action Required</h4><p style="color:#f9a825">${escHtml(data.action_required)}</p>`;
   }
-  return html || '<p>(No analysis available.)</p>';
+
+  if (data.event_times?.length) {
+    html += '<h4>Key Dates</h4>';
+    for (const ev of data.event_times) {
+      html += `<p style="color:#ffb74d">${escHtml(ev.label || '')}: ${escHtml(ev.time || '')}</p>`;
+    }
+  }
+
+  if (data.key_points?.length) {
+    html += '<h4>Key Points</h4><ul style="margin:0 0 6px 1.2em;padding:0">';
+    for (const pt of data.key_points) {
+      html += `<li style="margin-bottom:4px">${escHtml(pt)}</li>`;
+    }
+    html += '</ul>';
+  }
+
+  if (data.urls?.length) {
+    html += '<h4>Related Links</h4>';
+    for (const u of data.urls) {
+      const label = escHtml(u.label || u.url || '');
+      const href  = escHtml(u.url  || '');
+      html += `<p><a href="${href}" target="_blank" rel="noopener" style="color:var(--accent-blue,#1e88e5)">${label}</a></p>`;
+    }
+  }
+
+  return html || '<p style="color:var(--text-muted)">(No analysis available.)</p>';
 }
 
 function escHtml(s) {

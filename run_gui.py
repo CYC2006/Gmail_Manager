@@ -925,8 +925,11 @@ def main(page: ft.Page):
         # ====================
 
         def create_email_card(data, card_mode="default"):
-            # unread emails get a lighter background to stand out
-            card_bgcolor = "#444444" if data.get('is_unread') else "#2a2a2a"
+            # preference-matched emails get a muted warm-yellow background
+            _matched        = data.get('matched_prefs') or []
+            _read_bgcolor   = "#35301a" if _matched else "#2a2a2a"
+            _unread_bgcolor = "#443e1f" if _matched else "#444444"
+            card_bgcolor    = _unread_bgcolor if data.get('is_unread') else _read_bgcolor
             email_id = data['id']
 
             # list wrapper so the star handler can toggle the value inside a closure
@@ -942,7 +945,7 @@ def main(page: ft.Page):
             async def on_mark_read(e):
                 # update card background color immediately before the API call
                 if data.get('is_unread'):
-                    card_inner.bgcolor = "#2a2a2a"
+                    card_inner.bgcolor = _read_bgcolor
                     data['is_unread'] = False
                     live_stats["unread"]     = max(0, live_stats["unread"] - 1)
                     all_mail_stats["unread"] = max(0, all_mail_stats["unread"] - 1)
@@ -992,7 +995,7 @@ def main(page: ft.Page):
             async def on_tap(e):
                 # update card read visual immediately (card_inner is local to this closure)
                 if data.get('is_unread'):
-                    card_inner.bgcolor = "#2a2a2a"
+                    card_inner.bgcolor = _read_bgcolor
                 await _open_modal(data)
 
             # --------------------
@@ -1023,9 +1026,7 @@ def main(page: ft.Page):
                     max_lines=1,
                 )
 
-            # highlight emails whose content matches a saved preference keyword
-            _matched = data.get('matched_prefs') or []
-            _pref_border = ft.Border.all(2, ft.Colors.AMBER_400) if _matched else None
+            # _matched / _read_bgcolor / _unread_bgcolor already set above
 
             # extracted so the modal can sync its icon via data['_star_btn_ref']
             _card_star_btn = ft.IconButton(
@@ -1043,7 +1044,6 @@ def main(page: ft.Page):
                 bgcolor=card_bgcolor,
                 padding=ft.Padding.only(left=15, right=4, top=4, bottom=12),
                 border_radius=10,
-                border=_pref_border,
                 content=ft.Column(
                     spacing=8,
                     controls=[
