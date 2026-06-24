@@ -638,7 +638,7 @@ function openModal(email, view) {
   }
 
   switchModalTab('raw');
-  modalBackdrop.classList.remove('hidden');
+  modalBackdrop.classList.add('open');
 
   // Load body
   bodyLoading.classList.remove('hidden');
@@ -660,7 +660,7 @@ function openModal(email, view) {
 }
 
 function closeModal() {
-  modalBackdrop.classList.add('hidden');
+  modalBackdrop.classList.remove('open');
   state.currentEmail = null;
 }
 
@@ -961,9 +961,9 @@ function openCeModal(dateKey) {
   $('ce-date-label').textContent = dateKey;
   $('ce-title').value = ''; $('ce-notes').value = ''; $('ce-title-error').textContent = '';
   setCeAllDay(false); selectedCeColor = CAL_COLORS[0].id; buildTimeSelects();
-  $('ce-backdrop').classList.remove('hidden');
+  $('ce-backdrop').classList.add('open');
 }
-function closeCeModal() { $('ce-backdrop').classList.add('hidden'); }
+function closeCeModal() { $('ce-backdrop').classList.remove('open'); }
 
 function setCeAllDay(val) {
   ceIsAllDay = val;
