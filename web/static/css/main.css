@@ -346,7 +346,7 @@ a      { color: inherit; text-decoration: none; }
 .view-email-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 0 24px;
+  padding: 0 10px 24px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -355,7 +355,7 @@ a      { color: inherit; text-decoration: none; }
 .email-card {
   background: var(--bg-card);
   border-radius: 10px;
-  padding: 10px 6px 12px 14px;
+  padding: 6px 4px 8px 10px;
   cursor: pointer;
   transition: background .12s;
   border: 2px solid transparent;
@@ -372,7 +372,7 @@ a      { color: inherit; text-decoration: none; }
 }
 
 .card-sender {
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
@@ -393,7 +393,7 @@ a      { color: inherit; text-decoration: none; }
 }
 
 .card-time {
-  font-size: .75rem;
+  font-size: 1.05rem;
   color: var(--text-muted);
   white-space: nowrap;
   margin-right: 4px;
@@ -410,7 +410,7 @@ a      { color: inherit; text-decoration: none; }
   transition: background .12s, color .12s;
 }
 .card-btn:hover  { background: var(--bg-hover); color: var(--text-primary); }
-.card-btn .material-icons-round { font-size: 18px; }
+.card-btn .material-icons-round { font-size: 20px; }
 .card-btn.star-active .material-icons-round { color: var(--star-color); }
 .card-btn.danger:hover  { color: var(--danger); }
 .card-btn.success:hover { color: var(--success); }
@@ -419,11 +419,11 @@ a      { color: inherit; text-decoration: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 7px;
+  margin-top: 4px;
 }
 
 .cat-badge {
-  font-size: .72rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #fff;
   padding: 2px 8px;
@@ -433,7 +433,7 @@ a      { color: inherit; text-decoration: none; }
 }
 
 .card-subject {
-  font-size: .82rem;
+  font-size: 1.05rem;
   color: var(--text-subject);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -569,6 +569,7 @@ a      { color: inherit; text-decoration: none; }
 .stab {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 8px 14px;
   border-radius: 8px;
@@ -576,6 +577,7 @@ a      { color: inherit; text-decoration: none; }
   font-weight: 500;
   color: var(--text-muted);
   transition: background .15s, color .15s;
+  flex: 1;
 }
 .stab:hover  { background: var(--bg-hover); color: var(--text-primary); }
 .stab.active { background: var(--bg-active); color: var(--text-primary); }
@@ -976,6 +978,8 @@ a      { color: inherit; text-decoration: none; }
   outline: none;
   cursor: pointer;
   transition: border-color .15s;
+  min-height: 38px;
+  line-height: 1.4;
 }
 .sform-select:focus { border-color: var(--accent); }
 
