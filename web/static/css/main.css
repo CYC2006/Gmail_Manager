@@ -526,6 +526,7 @@ a      { color: inherit; text-decoration: none; }
   cursor: pointer;
   transition: background .12s;
   border: 1px solid transparent;
+  min-width: 0;
 }
 .cal-cell:hover     { background: var(--bg-hover); border-color: var(--border); }
 .cal-cell.today     { border-color: var(--accent); }
