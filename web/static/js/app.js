@@ -230,14 +230,20 @@ function distributeEmail(email) {
   if (email.sender?.toLowerCase().includes('moodle')) addToView(email, 'moodle');
 }
 
-// Binary-search insert into buffer sorted by _index ascending (lower = newer = top)
+// Sort key: higher value = newer = top of list.
+// Uses internalDate timestamp (_ts) when available; falls back to inverted _index.
+function _sortKey(email) {
+  return (email._ts > 0) ? email._ts : -(email._index ?? Infinity);
+}
+
+// Binary-search insert into buffer sorted by _sortKey descending (higher = newer = top)
 function _insertBufferSorted(view, email) {
-  const idx = email._index ?? Infinity;
+  const key = _sortKey(email);
   const buf = viewBuffer[view];
   let lo = 0, hi = buf.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if ((buf[mid]._index ?? Infinity) <= idx) lo = mid + 1;
+    if (_sortKey(buf[mid]) >= key) lo = mid + 1;
     else hi = mid;
   }
   buf.splice(lo, 0, email);
@@ -266,37 +272,37 @@ function _renderCardInView(email, view) {
   if (!email._cards) email._cards = {};
   email._cards[view] = card;
 
-  // Insert at correct sorted position by _index (lower = newer = top of list)
-  const emailIdx = email._index ?? Infinity;
+  // Insert before the first child that is older (lower sort key)
+  const emailKey = _sortKey(email);
   const container = viewListEls[view];
   let inserted = false;
   for (const child of container.children) {
-    if ((child._emailIndex ?? Infinity) > emailIdx) {
+    if ((child._emailKey ?? -Infinity) < emailKey) {
       container.insertBefore(card, child);
       inserted = true;
       break;
     }
   }
   if (!inserted) container.appendChild(card);
-  card._emailIndex = emailIdx;
+  card._emailKey = emailKey;
 
   viewShown[view].add(email.id);
 }
 
 function fillNextCard(view) {
   if (viewShown[view].size >= PAGE_SIZE) return;
-  // Find the _index of the current bottom-most shown card
-  let bottomIdx = -1;
+  // Find the sort key of the current bottom-most shown card (minimum = oldest)
+  let bottomKey = Infinity;
   for (const email of viewBuffer[view]) {
     if (viewShown[view].has(email.id)) {
-      const i = email._index ?? -1;
-      if (i > bottomIdx) bottomIdx = i;
+      const k = _sortKey(email);
+      if (k < bottomKey) bottomKey = k;
     }
   }
-  // Only fill with an email older than the current bottom (higher _index),
-  // so it always appends at the bottom in time order
+  // Buffer is sorted descending by sort key; first un-shown with key < bottomKey
+  // is the next-oldest email and will always append at the bottom
   for (const email of viewBuffer[view]) {
-    if (!viewShown[view].has(email.id) && (email._index ?? Infinity) > bottomIdx) {
+    if (!viewShown[view].has(email.id) && _sortKey(email) < bottomKey) {
       _renderCardInView(email, view);
       return;
     }

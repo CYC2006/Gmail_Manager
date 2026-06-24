@@ -203,6 +203,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
             is_in_inbox = "INBOX" in label_ids
             is_moodle  = "moodle" in sender.lower()
 
+            internal_date = int(msg_meta.get("internalDate", 0))
             cached = get_cached_result(email_id)
             if cached:
                 print(f"[CACHE] Loaded: {subject[:30]}...")
@@ -216,18 +217,20 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     "category": cached.get("category"), "subject": subject,
                     "is_unread": is_unread, "is_starred": is_starred,
                     "is_in_inbox": is_in_inbox, "_index": i + page_offset,
+                    "_ts": internal_date,
                     "matched_prefs": matched_prefs,
                 }
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time,
-                                 is_unread, is_starred, is_moodle, is_in_inbox))
+                                 is_unread, is_starred, is_moodle, is_in_inbox,
+                                 internal_date))
 
         except Exception as error:
             print(f"[ERROR] Pass 1 failed for {message['id']}: {error}")
 
     # ── Pass 2: AI categorize uncached emails ──
     tpd_logged = False
-    for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle, is_in_inbox in ai_queue:
+    for i, email_id, sender, subject, receive_time, is_unread, is_starred, is_moodle, is_in_inbox, internal_date in ai_queue:
         if _ai_agent.TPD_EXHAUSTED:
             if not tpd_logged:
                 print("[SYSTEM] Daily token limit exhausted — remaining emails shown uncategorized.")
@@ -237,6 +240,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                 "category": OTHER, "subject": subject,
                 "is_unread": is_unread, "is_starred": is_starred,
                 "is_in_inbox": is_in_inbox, "_index": i + page_offset,
+                "_ts": internal_date,
                 "matched_prefs": [],
             }
             continue
@@ -283,6 +287,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                 "category": category, "subject": subject,
                 "is_unread": is_unread, "is_starred": is_starred,
                 "is_in_inbox": is_in_inbox, "_index": i + page_offset,
+                "_ts": internal_date,
                 "matched_prefs": matched_prefs,
             }
         except Exception as error:
@@ -325,6 +330,7 @@ def fetch_simple_emails(service, query, page_token=None, page_offset=0):
             "is_unread": is_unread, "is_starred": is_starred,
             "is_in_inbox": "INBOX" in label_ids,
             "_index": i + page_offset,
+            "_ts": int(msg_meta.get("internalDate", 0)),
             "matched_prefs": [],
         }
 
