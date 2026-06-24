@@ -46,18 +46,19 @@ def get_service():
             _svc = get_gmail_service()
         return _svc
 
-_user_email_cache = [None]
+_user_email = None
 _user_email_lock = threading.Lock()
 
 def get_cached_user_email():
+    global _user_email
     with _user_email_lock:
-        if _user_email_cache[0] is None:
+        if _user_email is None:
             try:
                 profile = get_service().users().getProfile(userId='me').execute()
-                _user_email_cache[0] = profile.get('emailAddress', '')
+                _user_email = profile.get('emailAddress', '')
             except Exception:
-                _user_email_cache[0] = ''
-        return _user_email_cache[0]
+                _user_email = ''
+        return _user_email
 
 
 # ── Page ────────────────────────────────────────────────────────────────────
