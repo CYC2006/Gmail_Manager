@@ -212,9 +212,11 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     # old cache entry — run a quick subject-only match and persist
                     matched_prefs = match_preferences(subject, "", cached.get("category", ""))
                     save_matched_prefs(email_id, matched_prefs)
+                display_subject = cached.get("summary") if is_moodle else None
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
+                    "display_subject": display_subject,
                     "is_unread": is_unread, "is_starred": is_starred,
                     "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                     "_ts": internal_date,
@@ -249,16 +251,21 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
             msg_full   = service.users().messages().get(userId="me", id=email_id, format="full").execute()
             email_body = get_email_body(msg_full.get("payload", {}))
 
-            category      = OTHER
-            matched_prefs = []
+            category        = OTHER
+            display_subject = None
+            matched_prefs   = []
             if len(email_body) > 20:
                 print(f"[AI] Categorizing: {subject[:30]}...")
                 result = categorize_email(email_body, is_moodle=is_moodle)
                 if result:
-                    category = result
+                    if is_moodle:
+                        category, display_subject = result
+                    else:
+                        category = result
                     save_analysis(email_id, {
                         "sender": sender, "time": receive_time,
-                        "category": category, "summary": subject,
+                        "category": category,
+                        "summary": display_subject if display_subject else subject,
                         "event_time": None, "action_required": None,
                     })
                     # match against full body (most accurate) and persist
@@ -285,6 +292,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
                 "category": category, "subject": subject,
+                "display_subject": display_subject,
                 "is_unread": is_unread, "is_starred": is_starred,
                 "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                 "_ts": internal_date,

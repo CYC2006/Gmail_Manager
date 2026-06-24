@@ -25,9 +25,10 @@ const VIEW_KEYS = ['inbox', 'moodle', 'all_mail', 'trash'];
 const viewStats = {};
 for (const v of VIEW_KEYS) viewStats[v] = { total: 0, unread: 0, starred: 0 };
 
-const viewBuffer = {};
-const viewShown  = {};
-for (const v of VIEW_KEYS) { viewBuffer[v] = []; viewShown[v] = new Set(); }
+const viewBuffer     = {};
+const viewShown      = {};
+const viewBufferedIds = {};
+for (const v of VIEW_KEYS) { viewBuffer[v] = []; viewShown[v] = new Set(); viewBufferedIds[v] = new Set(); }
 
 const emailListWrapper = document.getElementById('email-list');
 const viewListEls = {};
@@ -263,6 +264,8 @@ function _insertBufferSorted(view, email) {
 }
 
 function addToView(email, view) {
+  if (viewBufferedIds[view].has(email.id)) return;
+  viewBufferedIds[view].add(email.id);
   _insertBufferSorted(view, email);
 
   viewStats[view].total++;
@@ -365,7 +368,7 @@ function refreshCurrentView() {
     trashLoading = false;
     viewListEls['trash'].innerHTML = '';
     viewStats['trash'] = { total: 0, unread: 0, starred: 0 };
-    viewBuffer['trash'] = []; viewShown['trash'] = new Set();
+    viewBuffer['trash'] = []; viewShown['trash'] = new Set(); viewBufferedIds['trash'] = new Set();
     loadTrash();
   } else {
     // refresh shared stream — clears all three views
@@ -376,7 +379,7 @@ function refreshCurrentView() {
     for (const v of ['inbox', 'moodle', 'all_mail']) {
       viewListEls[v].innerHTML = '';
       viewStats[v] = { total: 0, unread: 0, starred: 0 };
-      viewBuffer[v] = []; viewShown[v] = new Set();
+      viewBuffer[v] = []; viewShown[v] = new Set(); viewBufferedIds[v] = new Set();
     }
     updateStatsDisplay(view);
     startSharedStream();
@@ -543,6 +546,7 @@ function removeCardFromView(email, view) {
   const card = email._cards?.[view];
   if (card?.parentNode) card.remove();
   viewShown[view].delete(email.id);
+  viewBufferedIds[view].delete(email.id);
   // Remove from buffer so it can't be filled back in
   const idx = viewBuffer[view].indexOf(email);
   if (idx !== -1) viewBuffer[view].splice(idx, 1);
@@ -976,7 +980,7 @@ streamRetryBtn.addEventListener('click', () => {
   for (const v of VIEW_KEYS.filter(v => v !== 'trash')) {
     viewListEls[v].innerHTML = '';
     viewStats[v] = { total: 0, unread: 0, starred: 0 };
-    viewBuffer[v] = []; viewShown[v] = new Set();
+    viewBuffer[v] = []; viewShown[v] = new Set(); viewBufferedIds[v] = new Set();
   }
   updateStatsDisplay(state.currentView);
   startSharedStream();

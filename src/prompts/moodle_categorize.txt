@@ -18,5 +18,12 @@ Important distinctions:
 - If the email is about exams but has no specific date → "考試相關"
 - Releasing answer keys, solutions, supplementary materials, or homework instructions → "作業相關"
 
+Also extract:
+- course_name: The Chinese name of the course (e.g. "機率與統計", "資料視覺化與探索").
+  Look for it in the email subject or body. Course codes like "1142_F722700" are NOT course names.
+  If the Chinese course name appears anywhere in the email (subject line or body), use it.
+  If you truly cannot find a Chinese name, return an empty string.
+- brief: A concise Chinese summary of this email's content in 10 words or less, excluding the course name.
+
 Return exactly:
-{"category": "<exact label from the list above>"}
+{"category": "<exact label>", "course_name": "<課程中文名稱>", "brief": "<簡短摘要>"}

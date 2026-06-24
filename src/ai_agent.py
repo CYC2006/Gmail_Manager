@@ -192,21 +192,36 @@ def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
 
 
 def categorize_email(email_body, is_moodle=False):
-    """Call the AI to categorize one email. Returns the category string, or None on failure."""
+    """Call the AI to categorize one email.
+    Non-Moodle: returns category string, or None on failure.
+    Moodle: returns (category, display_subject) tuple, or None on failure.
+    display_subject is formatted as "課程名稱 - 摘要"."""
     system_prompt = MOODLE_CATEGORIZE if is_moodle else EMAIL_CATEGORIZE
     raw = _call_groq(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": f"Email body:\n{email_body[:3000]}"},
         ],
-        max_tokens=20,
+        max_tokens=100 if is_moodle else 20,
     )
     if raw is None:
         return None
     if raw.startswith("```"):
         raw = raw.strip("`").removeprefix("json").strip()
     try:
-        return json.loads(raw).get("category")
+        obj = json.loads(raw)
+        category = obj.get("category")
+        if is_moodle:
+            course_name = (obj.get("course_name") or "").strip()
+            brief       = (obj.get("brief")       or "").strip()
+            if course_name and brief:
+                display_subject = f"{course_name} - {brief}"
+            elif course_name:
+                display_subject = course_name
+            else:
+                display_subject = brief
+            return category, display_subject
+        return category
     except Exception as e:
         print(f"[DEBUG] Categorization JSON parse failed: {e}")
         return None
@@ -231,13 +246,16 @@ def extract_moodle_events(email_body):
     return obj.get("event_times", [])
 
 
-def analyze_email_detail(email_body):
+def analyze_email_detail(email_body, category=None):
     """Run a full structured analysis of one email.
     Returns a dict with summary, action_required, event_times, urls, key_points — or None on failure."""
+    user_content = f"Email body:\n{email_body[:4000]}"
+    if category:
+        user_content = f"Email category: {category}\n\n{user_content}"
     raw = _call_groq(
         messages=[
             {"role": "system", "content": EMAIL_DETAIL_ANALYZE},
-            {"role": "user",   "content": f"Email body:\n{email_body[:4000]}"},
+            {"role": "user",   "content": user_content},
         ],
         max_tokens=1500,  # raised from 1000 — give model more room to close JSON cleanly
     )
