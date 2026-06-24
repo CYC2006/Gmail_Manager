@@ -1281,6 +1281,10 @@ _origStabClick.forEach(btn => {
   initTheme();
   fetch('/api/user')
     .then(r => r.json())
-    .then(d => { $('user-email').textContent = d.email || ''; });
+    .then(d => {
+      const raw = d.email || '';
+      const local = raw.split('@')[0];
+      $('user-email').textContent = local.charAt(0).toUpperCase() + local.slice(1);
+    });
   switchView('inbox');
 })();
