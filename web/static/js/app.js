@@ -197,6 +197,7 @@ function startSharedStream() {
     sharedLoading = false;
     _autoRetried  = false;
     syncLoadingBar();
+    startBodyPrefetch();
   });
 
   source.addEventListener('error', ev => {
@@ -235,6 +236,48 @@ function startSharedStream() {
 
 const isMoodleEmail = email => Boolean(email.sender?.toLowerCase().includes('moodle'));
 
+// ─── Body & AI prefetch caches ───────────────────────────────────────────────
+
+const bodyCache = new Map();   // email.id → body string (in-session)
+let _matchedPrefetchIdx = 0;   // stagger counter for matched-email AI prefetch
+
+function prefetchAiAnalysis(email) {
+  if (email._aiLoaded || email._aiQueued) return;
+  email._aiQueued = true;
+  fetch(`/api/email/${email.id}/analyze`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d._failed && !d.error) {
+        email._aiResult = d;
+        email._aiLoaded = true;
+        // If this email is open and AI tab is active, render immediately
+        if (state.currentEmail?.id === email.id && $('tab-ai').classList.contains('active')) {
+          aiLoadingEl.classList.add('hidden');
+          aiResult.innerHTML = renderAiResult(d);
+        }
+      } else {
+        email._aiQueued = false;
+      }
+    })
+    .catch(() => { email._aiQueued = false; });
+}
+
+function startBodyPrefetch() {
+  const emails = [...viewBuffer['inbox']];
+  let idx = 0;
+  function next() {
+    if (idx >= emails.length) return;
+    const email = emails[idx++];
+    if (bodyCache.has(email.id)) { next(); return; }  // already cached, skip instantly
+    fetch(`/api/email/${email.id}/body`)
+      .then(r => r.json())
+      .then(d => { if (d.body) bodyCache.set(email.id, d.body); })
+      .catch(() => {})
+      .finally(() => setTimeout(next, 800));
+  }
+  next();
+}
+
 function distributeEmail(email) {
   // all_mail gets every email
   addToView(email, 'all_mail');
@@ -244,6 +287,11 @@ function distributeEmail(email) {
 
   // moodle: emails from moodle
   if (isMoodleEmail(email)) addToView(email, 'moodle');
+
+  // background AI prefetch for preference-matched emails (staggered 3s apart)
+  if (email.matched_prefs?.length > 0) {
+    setTimeout(() => prefetchAiAnalysis(email), _matchedPrefetchIdx++ * 3000);
+  }
 }
 
 // Sort key: higher value = newer = top of list.
@@ -642,23 +690,32 @@ function openModal(email, view) {
   switchModalTab('raw');
   modalBackdrop.classList.add('open');
 
-  // Load body
+  // Load body — check in-session cache first, then DB/Gmail API
   bodyLoading.classList.remove('hidden');
   modalBodyText.textContent = '';
-  fetch(`/api/email/${email.id}/body`)
-    .then(r => r.json())
-    .then(d => {
-      bodyLoading.classList.add('hidden');
-      modalBodyText.textContent = d.body || '';
-      if (email.is_unread) {
-        markEmailRead(email);
-        apiPost(`/api/email/${email.id}/mark_read`);
-      }
-    })
-    .catch(() => {
-      bodyLoading.classList.add('hidden');
-      modalBodyText.textContent = '(Failed to load email body.)';
-    });
+
+  if (bodyCache.has(email.id)) {
+    bodyLoading.classList.add('hidden');
+    modalBodyText.textContent = bodyCache.get(email.id);
+    if (email.is_unread) { markEmailRead(email); apiPost(`/api/email/${email.id}/mark_read`); }
+  } else {
+    fetch(`/api/email/${email.id}/body`)
+      .then(r => r.json())
+      .then(d => {
+        bodyLoading.classList.add('hidden');
+        const body = d.body || '';
+        modalBodyText.textContent = body;
+        if (body) bodyCache.set(email.id, body);
+        if (email.is_unread) { markEmailRead(email); apiPost(`/api/email/${email.id}/mark_read`); }
+      })
+      .catch(() => {
+        bodyLoading.classList.add('hidden');
+        modalBodyText.textContent = '(Failed to load email body.)';
+      });
+  }
+
+  // Trigger AI analysis in background so it's ready when user switches tab
+  prefetchAiAnalysis(email);
 }
 
 function closeModal() {
@@ -677,43 +734,53 @@ function switchModalTab(tab) {
   $('tab-raw-btn').classList.toggle('active', tab === 'raw');
   $('tab-ai-btn').classList.toggle('active', tab === 'ai');
   $('modal-glow-wrap').classList.toggle('ai-mode', tab === 'ai');
-  if (tab === 'ai' && state.currentEmail && !state.currentEmail._aiLoaded) {
+  if (tab === 'ai' && state.currentEmail) {
     loadAiAnalysis(state.currentEmail);
   }
 }
 
 function loadAiAnalysis(email) {
+  // Result already cached — render instantly
+  if (email._aiResult) {
+    aiLoadingEl.classList.add('hidden');
+    aiResult.innerHTML = renderAiResult(email._aiResult);
+    return;
+  }
+  // Prefetch in progress — show spinner; prefetchAiAnalysis will render on completion
+  if (email._aiQueued) {
+    aiLoadingEl.classList.remove('hidden');
+    aiResult.innerHTML = '';
+    return;
+  }
+  // Not started — fetch now (user clicked AI tab before prefetch ran)
+  email._aiQueued = true;
   aiLoadingEl.classList.remove('hidden');
   aiResult.innerHTML = '';
+
+  const _showError = () => {
+    email._aiQueued = false;
+    aiLoadingEl.classList.add('hidden');
+    aiResult.innerHTML =
+      '<p style="color:var(--text-muted)">Analysis unavailable.</p>' +
+      '<button id="ai-retry-btn" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);cursor:pointer">Retry</button>';
+    const retryBtn = document.getElementById('ai-retry-btn');
+    if (retryBtn) retryBtn.addEventListener('click', () => {
+      email._aiLoaded = false;
+      email._aiQueued = false;
+      loadAiAnalysis(email);
+    });
+  };
+
   fetch(`/api/email/${email.id}/analyze`)
     .then(r => r.json())
     .then(d => {
+      if (d.error || d._failed) { _showError(); return; }
+      email._aiResult = d;
+      email._aiLoaded = true;
       aiLoadingEl.classList.add('hidden');
-      if (d.error || d._failed) {
-        aiResult.innerHTML =
-          '<p style="color:var(--text-muted)">Analysis unavailable.</p>' +
-          '<button id="ai-retry-btn" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);cursor:pointer">Retry</button>';
-        const retryBtn = document.getElementById('ai-retry-btn');
-        if (retryBtn) retryBtn.addEventListener('click', () => {
-          email._aiLoaded = false;
-          loadAiAnalysis(email);
-        });
-      } else {
-        email._aiLoaded = true;
-        aiResult.innerHTML = renderAiResult(d);
-      }
+      aiResult.innerHTML = renderAiResult(d);
     })
-    .catch(() => {
-      aiLoadingEl.classList.add('hidden');
-      aiResult.innerHTML =
-        '<p style="color:var(--text-muted)">Analysis unavailable.</p>' +
-        '<button id="ai-retry-btn" style="margin-top:8px;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);cursor:pointer">Retry</button>';
-      const retryBtn = document.getElementById('ai-retry-btn');
-      if (retryBtn) retryBtn.addEventListener('click', () => {
-        email._aiLoaded = false;
-        loadAiAnalysis(email);
-      });
-    });
+    .catch(_showError);
 }
 
 function renderAiResult(data) {

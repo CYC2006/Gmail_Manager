@@ -20,6 +20,7 @@ from src.email_actions import (
 )
 from src.db_manager import (
     get_cached_result, get_detail_analysis, save_detail_analysis, delete_analysis,
+    get_cached_body, save_email_body,
 )
 from src.email_parser import get_email_body
 from src.ai_agent import analyze_email_detail, verify_api_key, reload_keys
@@ -123,9 +124,14 @@ def stream_emails():
 @app.route('/api/email/<email_id>/body')
 def api_email_body(email_id):
     try:
+        cached = get_cached_body(email_id)
+        if cached:
+            return jsonify({'body': cached})
         svc = build_action_service()
         msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
         body = get_email_body(msg.get('payload', {}))
+        if body:
+            save_email_body(email_id, body)
         return jsonify({'body': body})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

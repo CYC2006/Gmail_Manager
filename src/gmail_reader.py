@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from src.email_parser import get_email_body
 from src.ai_agent import categorize_email, extract_moodle_events
 import src.ai_agent as _ai_agent
-from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs
+from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs, save_email_body
 from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
 from src.categories import CAL_WORTHY, OTHER
@@ -271,6 +271,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     # match against full body (most accurate) and persist
                     matched_prefs = match_preferences(subject, email_body, category)
                     save_matched_prefs(email_id, matched_prefs)
+                    # persist body so future /body requests are served from DB
+                    save_email_body(email_id, email_body)
 
                     if is_moodle and category in CAL_WORTHY:
                         print(f"[CAL] Extracting events from Moodle mail: {subject[:30]}...")

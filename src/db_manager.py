@@ -34,6 +34,11 @@ def init_db():
             conn.execute('ALTER TABLE analyzed_emails ADD COLUMN matched_prefs TEXT')
         except sqlite3.OperationalError:
             pass  # column already exists
+        # add email_body column to existing databases that predate this schema
+        try:
+            conn.execute('ALTER TABLE analyzed_emails ADD COLUMN email_body TEXT')
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
     # purge entries not seen in any fetch for over 30 days
     cleanup_old_entries(days=30)
@@ -119,6 +124,27 @@ def get_detail_analysis(email_id):
         except json.JSONDecodeError:
             return None
     return None
+
+
+# get cached email body text (returns str or None)
+def get_cached_body(email_id):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT email_body FROM analyzed_emails WHERE email_id = ?', (email_id,))
+        row = cursor.fetchone()
+    if row and row['email_body']:
+        return row['email_body']
+    return None
+
+
+# store email body text for an email (UPDATE only — row must already exist)
+def save_email_body(email_id, body_text):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            'UPDATE analyzed_emails SET email_body = ? WHERE email_id = ?',
+            (body_text, email_id)
+        )
 
 
 # store the full detail analysis JSON for an email
