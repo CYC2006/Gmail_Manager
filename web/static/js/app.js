@@ -58,8 +58,17 @@ const statsBar   = $('stats-bar');
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+let _currentThemeSetting = 'dark';
+
+function resolveTheme(theme) {
+  if (theme === 'system') return systemDark.matches ? 'dark' : 'light';
+  return theme;
+}
+
 function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+  _currentThemeSetting = theme;
+  document.documentElement.setAttribute('data-theme', resolveTheme(theme));
   document.querySelectorAll('input[name="theme"]').forEach(r => {
     r.checked = r.value === theme;
   });
@@ -71,6 +80,10 @@ function initTheme() {
     .then(d => applyTheme(d.theme || 'dark'))
     .catch(() => applyTheme('dark'));
 }
+
+systemDark.addEventListener('change', () => {
+  if (_currentThemeSetting === 'system') applyTheme('system');
+});
 
 document.querySelectorAll('input[name="theme"]').forEach(radio => {
   radio.addEventListener('change', () => {
@@ -501,7 +514,7 @@ function buildCard(email, view) {
 
   const subject = document.createElement('span');
   subject.className = 'card-subject';
-  subject.textContent = email.subject || '(No Subject)';
+  subject.textContent = email.display_subject || email.subject || '(No Subject)';
   bottom.appendChild(subject);
 
   card.appendChild(top);
@@ -592,7 +605,7 @@ const modalGmailLink  = $('modal-gmail-link');
 function openModal(email, view) {
   state.currentEmail = email;
 
-  modalSubject.textContent = email.subject || '(No Subject)';
+  modalSubject.textContent = email.display_subject || email.subject || '(No Subject)';
   modalSender.textContent  = email.sender  || '';
   modalTime.textContent    = email.time    || '';
   modalGmailLink.href = `https://mail.google.com/mail/u/0/#all/${email.id}`;

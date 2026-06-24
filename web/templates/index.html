@@ -190,31 +190,48 @@
 
           <!-- Appearance -->
           <div class="stab-panel" id="stab-appearance">
-            <div class="appearance-section">
-              <h3 class="section-title">Theme</h3>
-              <div class="theme-options">
-                <label class="theme-option" id="theme-dark-option">
-                  <input type="radio" name="theme" value="dark" checked />
-                  <div class="theme-preview dark-preview">
-                    <div class="tp-sidebar"></div>
-                    <div class="tp-main">
-                      <div class="tp-card"></div>
-                      <div class="tp-card"></div>
-                    </div>
+            <div class="sform">
+              <h3 class="sform-title">Appearance</h3>
+              <div class="sform-divider"></div>
+              <div class="sform-row" style="align-items: flex-start;">
+                <label class="sform-label" style="padding-top: 10px;">Theme</label>
+                <div class="sform-right">
+                  <div class="theme-options">
+                    <label class="theme-option" id="theme-dark-option">
+                      <input type="radio" name="theme" value="dark" checked />
+                      <div class="theme-preview dark-preview">
+                        <div class="tp-sidebar"></div>
+                        <div class="tp-main">
+                          <div class="tp-card"></div>
+                          <div class="tp-card"></div>
+                        </div>
+                      </div>
+                      <span>Dark</span>
+                    </label>
+                    <label class="theme-option" id="theme-light-option">
+                      <input type="radio" name="theme" value="light" />
+                      <div class="theme-preview light-preview">
+                        <div class="tp-sidebar"></div>
+                        <div class="tp-main">
+                          <div class="tp-card"></div>
+                          <div class="tp-card"></div>
+                        </div>
+                      </div>
+                      <span>Light</span>
+                    </label>
+                    <label class="theme-option" id="theme-system-option">
+                      <input type="radio" name="theme" value="system" />
+                      <div class="theme-preview system-preview">
+                        <div class="tp-sidebar"></div>
+                        <div class="tp-main">
+                          <div class="tp-card"></div>
+                          <div class="tp-card"></div>
+                        </div>
+                      </div>
+                      <span>System</span>
+                    </label>
                   </div>
-                  <span>Dark</span>
-                </label>
-                <label class="theme-option" id="theme-light-option">
-                  <input type="radio" name="theme" value="light" />
-                  <div class="theme-preview light-preview">
-                    <div class="tp-sidebar"></div>
-                    <div class="tp-main">
-                      <div class="tp-card"></div>
-                      <div class="tp-card"></div>
-                    </div>
-                  </div>
-                  <span>Light</span>
-                </label>
+                </div>
               </div>
             </div>
           </div>
