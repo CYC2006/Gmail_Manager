@@ -285,8 +285,18 @@ function _renderCardInView(email, view) {
 
 function fillNextCard(view) {
   if (viewShown[view].size >= PAGE_SIZE) return;
+  // Find the _index of the current bottom-most shown card
+  let bottomIdx = -1;
   for (const email of viewBuffer[view]) {
-    if (!viewShown[view].has(email.id)) {
+    if (viewShown[view].has(email.id)) {
+      const i = email._index ?? -1;
+      if (i > bottomIdx) bottomIdx = i;
+    }
+  }
+  // Only fill with an email older than the current bottom (higher _index),
+  // so it always appends at the bottom in time order
+  for (const email of viewBuffer[view]) {
+    if (!viewShown[view].has(email.id) && (email._index ?? Infinity) > bottomIdx) {
       _renderCardInView(email, view);
       return;
     }
@@ -412,24 +422,24 @@ function buildCard(email, view) {
   actions.appendChild(timeSpan);
 
   if (view === 'trash') {
-    actions.appendChild(cardBtn('restore_from_trash', 'Restore', 'success', async () => {
-      await apiPost(`/api/email/${email.id}/restore`);
+    actions.appendChild(cardBtn('restore_from_trash', 'Restore', 'success', () => {
       removeCardFromView(email, 'trash');
       viewStats['trash'].total = Math.max(0, viewStats['trash'].total - 1);
       if (state.currentView === 'trash') updateStatsDisplay('trash');
+      apiPost(`/api/email/${email.id}/restore`);
     }));
-    actions.appendChild(cardBtn('delete_forever', 'Delete permanently', 'danger', async () => {
-      await apiPost(`/api/email/${email.id}/delete`);
+    actions.appendChild(cardBtn('delete_forever', 'Delete permanently', 'danger', () => {
       removeCardFromView(email, 'trash');
       viewStats['trash'].total = Math.max(0, viewStats['trash'].total - 1);
       if (state.currentView === 'trash') updateStatsDisplay('trash');
+      apiPost(`/api/email/${email.id}/delete`);
     }));
   } else {
     // mark read
-    actions.appendChild(cardBtn('mark_email_read', 'Mark as read', '', async () => {
+    actions.appendChild(cardBtn('mark_email_read', 'Mark as read', '', () => {
       if (!email.is_unread) return;
-      await apiPost(`/api/email/${email.id}/mark_read`);
       markEmailRead(email);
+      apiPost(`/api/email/${email.id}/mark_read`);
     }));
 
     // star — store ref for cross-view sync
@@ -437,10 +447,10 @@ function buildCard(email, view) {
       email.is_starred ? 'star' : 'star_border',
       'Star',
       email.is_starred ? 'star-active' : '',
-      async () => {
+      () => {
         const newVal = !email.is_starred;
-        await apiPost(`/api/email/${email.id}/star`, { starred: newVal });
         updateEmailStar(email, newVal);
+        apiPost(`/api/email/${email.id}/star`, { starred: newVal });
       }
     );
     if (!email._starBtns) email._starBtns = [];
@@ -448,32 +458,30 @@ function buildCard(email, view) {
     actions.appendChild(starBtnEl);
 
     if (view === 'all_mail') {
-      actions.appendChild(cardBtn('move_to_inbox', 'Move to Inbox', 'success', async () => {
-        await apiPost(`/api/email/${email.id}/unarchive`);
+      actions.appendChild(cardBtn('move_to_inbox', 'Move to Inbox', 'success', () => {
         removeCardFromView(email, 'all_mail');
         adjustStats('all_mail', email, -1);
         if (state.currentView === 'all_mail') updateStatsDisplay('all_mail');
+        apiPost(`/api/email/${email.id}/unarchive`);
       }));
     } else {
-      actions.appendChild(cardBtn('archive', 'Archive', 'success', async () => {
-        await apiPost(`/api/email/${email.id}/archive`);
-        // Remove from inbox (and moodle if applicable); all_mail keeps it
+      actions.appendChild(cardBtn('archive', 'Archive', 'success', () => {
         removeCardFromView(email, 'inbox');
         removeCardFromView(email, 'moodle');
         adjustStats('inbox', email, -1);
         if (isMoodle) adjustStats('moodle', email, -1);
         if (state.currentView === view) updateStatsDisplay(view);
+        apiPost(`/api/email/${email.id}/archive`);
       }));
     }
 
-    actions.appendChild(cardBtn('delete', 'Delete', 'danger', async () => {
-      await apiPost(`/api/email/${email.id}/trash`);
-      // Remove from inbox / moodle / all_mail
+    actions.appendChild(cardBtn('delete', 'Delete', 'danger', () => {
       for (const v of ['inbox', 'moodle', 'all_mail']) {
         adjustStats(v, email, -1);
         removeCardFromView(email, v);
       }
       if (state.currentView === view) updateStatsDisplay(view);
+      apiPost(`/api/email/${email.id}/trash`);
     }));
   }
 
@@ -676,57 +684,57 @@ function escHtml(s) {
 }
 
 // Modal action buttons
-modalStarBtn.addEventListener('click', async () => {
+modalStarBtn.addEventListener('click', () => {
   const email = state.currentEmail;
   if (!email) return;
   const newVal = !email.is_starred;
-  await apiPost(`/api/email/${email.id}/star`, { starred: newVal });
   updateEmailStar(email, newVal);
+  apiPost(`/api/email/${email.id}/star`, { starred: newVal });
 });
 
-modalArchiveBtn.addEventListener('click', async () => {
+modalArchiveBtn.addEventListener('click', () => {
   const email = state.currentEmail;
   if (!email) return;
   const view = state.currentView;
   closeModal();
   if (view === 'trash') {
-    await apiPost(`/api/email/${email.id}/restore`);
     removeCardFromView(email, 'trash');
     adjustStats('trash', email, -1);
     updateStatsDisplay('trash');
+    apiPost(`/api/email/${email.id}/restore`);
   } else if (view === 'all_mail') {
-    await apiPost(`/api/email/${email.id}/unarchive`);
     removeCardFromView(email, 'all_mail');
     adjustStats('all_mail', email, -1);
     updateStatsDisplay('all_mail');
+    apiPost(`/api/email/${email.id}/unarchive`);
   } else {
-    await apiPost(`/api/email/${email.id}/archive`);
     const isMoodle = email.sender?.toLowerCase().includes('moodle');
     removeCardFromView(email, 'inbox');
     removeCardFromView(email, 'moodle');
     adjustStats('inbox', email, -1);
     if (isMoodle) adjustStats('moodle', email, -1);
     updateStatsDisplay(view);
+    apiPost(`/api/email/${email.id}/archive`);
   }
 });
 
-modalTrashBtn.addEventListener('click', async () => {
+modalTrashBtn.addEventListener('click', () => {
   const email = state.currentEmail;
   if (!email) return;
   const view = state.currentView;
   closeModal();
   if (view === 'trash') {
-    await apiPost(`/api/email/${email.id}/delete`);
     removeCardFromView(email, 'trash');
     adjustStats('trash', email, -1);
     updateStatsDisplay('trash');
+    apiPost(`/api/email/${email.id}/delete`);
   } else {
-    await apiPost(`/api/email/${email.id}/trash`);
     for (const v of ['inbox', 'moodle', 'all_mail']) {
       removeCardFromView(email, v);
       adjustStats(v, email, -1);
     }
     updateStatsDisplay(view);
+    apiPost(`/api/email/${email.id}/trash`);
   }
 });
 
