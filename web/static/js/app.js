@@ -13,11 +13,21 @@ const state = {
 // ─── Per-view email list containers ──────────────────────────────────────────
 // Each view gets its own persistent DOM node.
 // Switching views = show/hide only; never re-fetches or re-renders.
+//
+// PAGE_SIZE: max cards shown at once per view.
+// viewBuffer: all fetched emails (sorted order) — the full pool.
+// viewShown:  Set of email IDs currently rendered in the DOM.
+// When a card is removed, fillNextCard() pulls the next buffered email in.
 
+const PAGE_SIZE = 50;
 const VIEW_KEYS = ['inbox', 'moodle', 'all_mail', 'trash'];
 
 const viewStats = {};
 for (const v of VIEW_KEYS) viewStats[v] = { total: 0, unread: 0, starred: 0 };
+
+const viewBuffer = {};
+const viewShown  = {};
+for (const v of VIEW_KEYS) { viewBuffer[v] = []; viewShown[v] = new Set(); }
 
 const emailListWrapper = document.getElementById('email-list');
 const viewListEls = {};
@@ -113,6 +123,7 @@ function switchView(view) {
     }
 
     updateStatsDisplay(view);
+    syncLoadingBar();
 
     if (view === 'trash') {
       if (!trashLoaded && !trashLoading) loadTrash();
@@ -141,9 +152,20 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 
 let _autoRetried = false;
 
+function syncLoadingBar() {
+  const view = state.currentView;
+  // Show bar only when stream is active AND current view has no cards yet
+  if ((sharedLoading && view !== 'trash') || (trashLoading && view === 'trash')) {
+    if (viewShown[view].size === 0) startLoading();
+    else stopLoading();
+  } else {
+    stopLoading();
+  }
+}
+
 function startSharedStream() {
   sharedLoading = true;
-  startLoading();
+  syncLoadingBar();
   hideStreamError();
 
   const source = new EventSource('/api/emails/stream');
@@ -160,14 +182,14 @@ function startSharedStream() {
     sharedLoaded  = true;
     sharedLoading = false;
     _autoRetried  = false;
-    stopLoading();
+    syncLoadingBar();
   });
 
   source.addEventListener('error', ev => {
     source.close();
     sharedSse     = null;
     sharedLoading = false;
-    stopLoading();
+    syncLoadingBar();
     if (ev.data) {
       const msg = JSON.parse(ev.data).error || 'Stream error';
       const isTransient = /ssl|connection|timeout|network/i.test(msg);
@@ -185,7 +207,7 @@ function startSharedStream() {
   source.onerror = ev => {
     if (!ev.data && source.readyState === EventSource.CLOSED) {
       sharedLoading = false;
-      stopLoading();
+      syncLoadingBar();
       if (!_autoRetried) {
         _autoRetried = true;
         setTimeout(() => { sharedLoaded = false; startSharedStream(); }, 2000);
@@ -208,38 +230,83 @@ function distributeEmail(email) {
   if (email.sender?.toLowerCase().includes('moodle')) addToView(email, 'moodle');
 }
 
+// Binary-search insert into buffer sorted by _index ascending (lower = newer = top)
+function _insertBufferSorted(view, email) {
+  const idx = email._index ?? Infinity;
+  const buf = viewBuffer[view];
+  let lo = 0, hi = buf.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((buf[mid]._index ?? Infinity) <= idx) lo = mid + 1;
+    else hi = mid;
+  }
+  buf.splice(lo, 0, email);
+}
+
 function addToView(email, view) {
-  const card = buildCard(email, view);
-
-  // store card ref so cross-view actions can remove it later
-  if (!email._cards) email._cards = {};
-  email._cards[view] = card;
-
-  viewListEls[view].appendChild(card);
+  _insertBufferSorted(view, email);
 
   viewStats[view].total++;
   if (email.is_unread)  viewStats[view].unread++;
   if (email.is_starred) viewStats[view].starred++;
 
+  // Only render if under PAGE_SIZE; rest stays buffered
+  if (viewShown[view].size < PAGE_SIZE) {
+    const wasEmpty = viewShown[view].size === 0;
+    _renderCardInView(email, view);
+    // Hide loading bar once first card appears in the active view
+    if (wasEmpty && state.currentView === view) syncLoadingBar();
+  }
+
   if (state.currentView === view) updateStatsDisplay(view);
+}
+
+function _renderCardInView(email, view) {
+  const card = buildCard(email, view);
+  if (!email._cards) email._cards = {};
+  email._cards[view] = card;
+
+  // Insert at correct sorted position by _index (lower = newer = top of list)
+  const emailIdx = email._index ?? Infinity;
+  const container = viewListEls[view];
+  let inserted = false;
+  for (const child of container.children) {
+    if ((child._emailIndex ?? Infinity) > emailIdx) {
+      container.insertBefore(card, child);
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) container.appendChild(card);
+  card._emailIndex = emailIdx;
+
+  viewShown[view].add(email.id);
+}
+
+function fillNextCard(view) {
+  if (viewShown[view].size >= PAGE_SIZE) return;
+  for (const email of viewBuffer[view]) {
+    if (!viewShown[view].has(email.id)) {
+      _renderCardInView(email, view);
+      return;
+    }
+  }
 }
 
 // ─── Trash SSE ───────────────────────────────────────────────────────────────
 
 function loadTrash() {
   trashLoading = true;
-  startLoading();
+  syncLoadingBar();
 
   const source = new EventSource('/api/emails/stream?view=trash');
   trashSse = source;
 
   source.onmessage = e => {
     const email = JSON.parse(e.data);
-    const card = buildCard(email, 'trash');
-    if (!email._cards) email._cards = {};
-    email._cards['trash'] = card;
-    viewListEls['trash'].appendChild(card);
+    viewBuffer['trash'].push(email);
     viewStats['trash'].total++;
+    if (viewShown['trash'].size < PAGE_SIZE) _renderCardInView(email, 'trash');
     if (state.currentView === 'trash') updateStatsDisplay('trash');
   };
 
@@ -248,13 +315,13 @@ function loadTrash() {
     trashSse     = null;
     trashLoaded  = true;
     trashLoading = false;
-    stopLoading();
+    syncLoadingBar();
   });
 
   source.onerror = () => {
     if (source.readyState === EventSource.CLOSED) {
       trashLoading = false;
-      stopLoading();
+      syncLoadingBar();
     }
   };
 }
@@ -269,6 +336,7 @@ function refreshCurrentView() {
     trashLoading = false;
     viewListEls['trash'].innerHTML = '';
     viewStats['trash'] = { total: 0, unread: 0, starred: 0 };
+    viewBuffer['trash'] = []; viewShown['trash'] = new Set();
     loadTrash();
   } else {
     // refresh shared stream — clears all three views
@@ -279,6 +347,7 @@ function refreshCurrentView() {
     for (const v of ['inbox', 'moodle', 'all_mail']) {
       viewListEls[v].innerHTML = '';
       viewStats[v] = { total: 0, unread: 0, starred: 0 };
+      viewBuffer[v] = []; viewShown[v] = new Set();
     }
     updateStatsDisplay(view);
     startSharedStream();
@@ -446,6 +515,12 @@ function cardBtn(icon, title, extraClass, handler) {
 function removeCardFromView(email, view) {
   const card = email._cards?.[view];
   if (card?.parentNode) card.remove();
+  viewShown[view].delete(email.id);
+  // Remove from buffer so it can't be filled back in
+  const idx = viewBuffer[view].indexOf(email);
+  if (idx !== -1) viewBuffer[view].splice(idx, 1);
+  // Pull in the next buffered email
+  fillNextCard(view);
 }
 
 function adjustStats(view, email, delta) {
@@ -874,6 +949,7 @@ streamRetryBtn.addEventListener('click', () => {
   for (const v of VIEW_KEYS.filter(v => v !== 'trash')) {
     viewListEls[v].innerHTML = '';
     viewStats[v] = { total: 0, unread: 0, starred: 0 };
+    viewBuffer[v] = []; viewShown[v] = new Set();
   }
   updateStatsDisplay(state.currentView);
   startSharedStream();
