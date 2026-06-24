@@ -130,6 +130,9 @@ a      { color: inherit; text-decoration: none; }
   min-width: 60px;
   padding: 16px 8px;
 }
+.sidebar.collapsed .sidebar-header { justify-content: center; }
+.sidebar.collapsed .sidebar-user   { justify-content: center; padding: 4px 0 12px; }
+.sidebar.collapsed .nav-item       { justify-content: center; padding: 10px 0; gap: 0; }
 
 /* Header row: hamburger + brand */
 .sidebar-header {
@@ -143,7 +146,7 @@ a      { color: inherit; text-decoration: none; }
 
 .sidebar-brand { overflow: hidden; }
 .brand-title {
-  font-size: 1.2rem;
+  font-size: 1.4rem;
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
@@ -162,7 +165,7 @@ a      { color: inherit; text-decoration: none; }
 }
 .user-icon { font-size: 18px; color: var(--text-muted); flex-shrink: 0; }
 .user-email {
-  font-size: 1rem;
+  font-size: 1.2rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -192,7 +195,7 @@ a      { color: inherit; text-decoration: none; }
   padding: 10px 12px;
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 500;
   transition: background .15s, color .15s;
   white-space: nowrap;
@@ -201,7 +204,7 @@ a      { color: inherit; text-decoration: none; }
 .nav-item:hover  { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--bg-active); color: var(--accent); }
 
-.nav-item .material-icons-round { font-size: 22px; flex-shrink: 0; }
+.nav-item .material-icons-round { font-size: 24px; flex-shrink: 0; }
 
 .nav-label { transition: opacity .18s ease; }
 .sidebar.collapsed .nav-label { opacity: 0; width: 0; }
