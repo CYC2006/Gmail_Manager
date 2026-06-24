@@ -23,7 +23,8 @@ from src.db_manager import (
     get_cached_body, save_email_body,
 )
 from src.email_parser import get_email_body
-from src.ai_agent import analyze_email_detail, verify_api_key, reload_keys
+from src.ai_agent import analyze_email_detail, verify_api_key, reload_keys, get_tpd_status
+import src.ai_agent as _ai_agent
 from src.config_manager import (
     load_user_prefs, save_user_prefs,
     get_groq_api_keys, save_groq_api_keys,
@@ -137,6 +138,11 @@ def api_email_body(email_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/tpd-status')
+def api_tpd_status():
+    return jsonify(get_tpd_status())
+
+
 @app.route('/api/email/<email_id>/analyze')
 def api_analyze(email_id):
     try:
@@ -144,6 +150,10 @@ def api_analyze(email_id):
         if cached:
             print(f"[ANALYZE] Cache hit for {email_id}")
             return jsonify(cached)
+        # Short-circuit if all keys are exhausted — skip retries entirely
+        if _ai_agent.TPD_EXHAUSTED:
+            print(f"[ANALYZE] TPD exhausted — skipping {email_id}")
+            return jsonify({'_failed': True, '_tpd': True})
         svc = build_action_service()
         msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
         body = get_email_body(msg.get('payload', {}))
@@ -151,7 +161,7 @@ def api_analyze(email_id):
         meta = get_cached_result(email_id)
         category = meta.get('category') if meta else None
         result = analyze_email_detail(body, category=category)
-        if result is None:
+        if result is None and not _ai_agent.TPD_EXHAUSTED:
             print("[ANALYZE] First attempt returned None — retrying in 3s")
             time.sleep(3)
             result = analyze_email_detail(body, category=category)

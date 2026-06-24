@@ -1166,6 +1166,40 @@ a      { color: inherit; text-decoration: none; }
 .api-badge.checking { border-color: var(--text-muted); }
 .api-badge.unverified .material-icons-round { color: #ffc107; }
 
+/* Per-key quota battery icon (prefix of each key row) */
+.api-quota-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  transition: color .2s;
+}
+.api-quota-icon.ok        { color: #4caf50; }
+.api-quota-icon.exhausted { color: #f44336; }
+
+/* TPD exhausted banner */
+.tpd-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: #0d2d4a;
+  color: #90caf9;
+  font-size: 0.88rem;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.tpd-banner .material-icons-round { font-size: 18px; color: #90caf9; }
+.tpd-banner-link {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #90caf9;
+  color: #90caf9;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.tpd-banner-link:hover { background: rgba(144,202,249,.12); }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Animations
 ══════════════════════════════════════════════════════════════════════════════ */

@@ -242,7 +242,7 @@ const bodyCache = new Map();   // email.id → body string (in-session)
 let _matchedPrefetchIdx = 0;   // stagger counter for matched-email AI prefetch
 
 function prefetchAiAnalysis(email) {
-  if (email._aiLoaded || email._aiQueued) return;
+  if (email._aiLoaded || email._aiQueued || _tpdAllExhausted) return;
   email._aiQueued = true;
   fetch(`/api/email/${email.id}/analyze`)
     .then(r => r.json())
@@ -1122,17 +1122,20 @@ $('ce-save-btn').addEventListener('click', async () => {
 
 // ─── Settings tabs ────────────────────────────────────────────────────────────
 
+function switchSettingsTab(tabName) {
+  document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.stab-panel').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`.stab[data-stab="${tabName}"]`);
+  if (btn) btn.classList.add('active');
+  const panel = $(`stab-${tabName}`);
+  if (panel) panel.classList.add('active');
+  if (tabName === 'preference') loadPreferenceTab();
+  else if (tabName === 'account')  loadAccountTab();
+  else if (tabName === 'api_keys') loadApiKeysTab();
+}
+
 document.querySelectorAll('.stab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.stab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    $(`stab-${btn.dataset.stab}`).classList.add('active');
-    const tab = btn.dataset.stab;
-    if (tab === 'preference') loadPreferenceTab();
-    else if (tab === 'account')  loadAccountTab();
-    else if (tab === 'api_keys') loadApiKeysTab();
-  });
+  btn.addEventListener('click', () => switchSettingsTab(btn.dataset.stab));
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1385,6 +1388,19 @@ function addApiKeyRow(value = '', status = 'unverified') {
   row.className = 'api-key-row';
   row.id = `api-key-row-${idx}`;
 
+  const quotaIcon = document.createElement('span');
+  const prefix = value ? value.slice(0, 8) : '';
+  quotaIcon.dataset.prefix = prefix;
+  if (prefix) {
+    const exhausted = _tpdExhaustedKeys.has(prefix);
+    quotaIcon.className = 'material-icons-round api-quota-icon ' + (exhausted ? 'exhausted' : 'ok');
+    quotaIcon.textContent = exhausted ? 'battery_1_bar' : 'battery_full';
+    quotaIcon.title = exhausted ? '今日額度已耗盡' : '可用';
+  } else {
+    quotaIcon.className = 'material-icons-round api-quota-icon';
+    quotaIcon.style.visibility = 'hidden';
+  }
+
   const field = document.createElement('input');
   field.className = 'api-key-field';
   field.type = 'password';
@@ -1406,6 +1422,7 @@ function addApiKeyRow(value = '', status = 'unverified') {
   badge.className = 'api-badge';
   setApiBadge(badge, status);
 
+  row.appendChild(quotaIcon);
   row.appendChild(field);
   row.appendChild(revealBtn);
   row.appendChild(badge);
@@ -1480,6 +1497,45 @@ $('api-save-btn').addEventListener('click', async () => {
 // Also load preference immediately since it's the default active tab
 // (done in boot after switchView)
 
+// ─── TPD status ───────────────────────────────────────────────────────────────
+
+let _tpdExhaustedKeys = new Set(); // key prefixes exhausted today
+let _tpdAllExhausted = false;       // true = all keys drained, stop all AI prefetch
+
+function loadTpdStatus() {
+  fetch('/api/tpd-status')
+    .then(r => r.json())
+    .then(d => {
+      _tpdExhaustedKeys = new Set(d.exhausted_keys || []);
+      _tpdAllExhausted  = !!d.all_exhausted;
+      const banner = $('tpd-banner');
+      if (_tpdAllExhausted) {
+        banner.removeAttribute('hidden');
+      } else {
+        banner.setAttribute('hidden', '');
+      }
+      // refresh per-key battery icons if API keys tab is open
+      updateQuotaDots();
+    })
+    .catch(() => {});
+}
+
+function updateQuotaDots() {
+  document.querySelectorAll('.api-quota-icon').forEach(el => {
+    const prefix = el.dataset.prefix || '';
+    const exhausted = _tpdExhaustedKeys.has(prefix);
+    el.textContent = exhausted ? 'battery_1_bar' : 'battery_full';
+    el.className = 'material-icons-round api-quota-icon ' + (exhausted ? 'exhausted' : 'ok');
+    el.title = exhausted ? '今日額度已耗盡' : '可用';
+  });
+}
+
+$('tpd-banner-goto').addEventListener('click', () => {
+  switchView('settings');
+  // small delay to let settings panel render, then switch to api_keys tab
+  setTimeout(() => switchSettingsTab('api_keys'), 50);
+});
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (function init() {
@@ -1491,5 +1547,6 @@ $('api-save-btn').addEventListener('click', async () => {
       const local = raw.split('@')[0];
       $('user-email').textContent = local.charAt(0).toUpperCase() + local.slice(1);
     });
+  loadTpdStatus();
   switchView('inbox');
 })();
