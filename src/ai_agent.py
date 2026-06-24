@@ -3,6 +3,7 @@ import os
 import re as _re
 import threading
 import time
+from datetime import date
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -12,6 +13,36 @@ ENV_PATH = os.path.join(ROOT_DIR, '.env')
 load_dotenv(dotenv_path=ENV_PATH)
 
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
+_TPD_STATUS_PATH = os.path.join(ROOT_DIR, 'data', 'tpd_status.json')
+
+
+def _load_tpd_status() -> set[str]:
+    """Return set of key prefixes exhausted today; empty set if file missing or stale."""
+    try:
+        with open(_TPD_STATUS_PATH, encoding='utf-8') as f:
+            data = json.load(f)
+        if data.get('date') == str(date.today()):
+            return set(data.get('exhausted_keys', []))
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        pass
+    return set()
+
+
+def _save_tpd_status(exhausted_prefixes: set[str]):
+    """Persist today's exhausted key prefixes to disk."""
+    os.makedirs(os.path.dirname(_TPD_STATUS_PATH), exist_ok=True)
+    with open(_TPD_STATUS_PATH, 'w', encoding='utf-8') as f:
+        json.dump({'date': str(date.today()), 'exhausted_keys': sorted(exhausted_prefixes)}, f)
+
+
+def get_tpd_status() -> dict:
+    """Return TPD status for the API endpoint: all_exhausted flag + per-key prefix list."""
+    today_exhausted = _load_tpd_status()
+    return {
+        'date': str(date.today()),
+        'all_exhausted': TPD_EXHAUSTED,
+        'exhausted_keys': sorted(today_exhausted),
+    }
 
 MODEL = "llama-3.3-70b-versatile"
 
@@ -44,8 +75,19 @@ def _load_keys_with_dev_fallback() -> list[str]:
 
 # Multi-key support — reloaded on demand via reload_keys()
 _AVAILABLE_KEYS: list[str] = _load_keys_with_dev_fallback()
-_current_key_idx = 0
+_exhausted_prefixes: set[str] = _load_tpd_status()  # restore today's exhausted state from disk
+_exhausted_keys: list[int] = [
+    i for i, k in enumerate(_AVAILABLE_KEYS) if (k[:8] if k else '') in _exhausted_prefixes
+]
+# find first non-exhausted key; default to 0 if all exhausted
+_current_key_idx = next(
+    (i for i in range(len(_AVAILABLE_KEYS)) if i not in _exhausted_keys), 0
+)
 _key_lock = threading.Lock()  # guards _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED, LAST_API_CALL_TIME
+
+
+def _key_prefix(key: str) -> str:
+    return key[:8] if key else ''
 
 
 def reload_keys():
@@ -53,13 +95,22 @@ def reload_keys():
     Called after the user saves keys in Settings — guaranteed verified-only.
     Does NOT fall back to .env so unverified keys can never slip in at runtime.
     """
-    global _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED
+    global _AVAILABLE_KEYS, _current_key_idx, TPD_EXHAUSTED, _exhausted_keys, _exhausted_prefixes
     new_keys = _load_verified_keys()
+    today_exhausted = _load_tpd_status()
+    # find which indices of the new key list are already exhausted today
+    exhausted_idxs = [i for i, k in enumerate(new_keys) if _key_prefix(k) in today_exhausted]
+    all_exhausted  = bool(new_keys) and len(exhausted_idxs) == len(new_keys)
+    # pick first non-exhausted key as current
+    first_ok = next((i for i in range(len(new_keys)) if i not in exhausted_idxs), 0)
     with _key_lock:
-        _AVAILABLE_KEYS  = new_keys
-        _current_key_idx = 0
-        TPD_EXHAUSTED    = False
-    print(f"[KEY] Reloaded {len(new_keys)} verified API key(s) from config.")
+        _AVAILABLE_KEYS    = new_keys
+        _current_key_idx   = first_ok
+        TPD_EXHAUSTED      = all_exhausted
+        _exhausted_keys    = exhausted_idxs
+        _exhausted_prefixes = today_exhausted
+    print(f"[KEY] Reloaded {len(new_keys)} verified API key(s) from config. "
+          f"Exhausted today: {len(exhausted_idxs)}/{len(new_keys)}")
 
 
 def _get_client() -> Groq:
@@ -70,7 +121,7 @@ def _get_client() -> Groq:
 
 def _try_switch_key() -> bool:
     """Switch to the next available key. Returns True if switched, False if all keys exhausted."""
-    global _current_key_idx, TPD_EXHAUSTED
+    global _current_key_idx, TPD_EXHAUSTED, _exhausted_keys
     with _key_lock:
         total    = len(_AVAILABLE_KEYS)
         next_idx = _current_key_idx + 1
@@ -118,7 +169,9 @@ MOODLE_EVENT_EXTRACT  = _load_prompt("moodle_event_extract.txt")
 # Groq free tier: 30 RPM — keep at least 2 s between calls to be safe
 LAST_API_CALL_TIME = 0.0
 MIN_INTERVAL = 2.5  # seconds
-TPD_EXHAUSTED = False  # set True when daily token limit is hit; stops all further AI calls
+# Restore TPD state from disk — if all keys were exhausted today before this process started,
+# we should not waste time retrying calls we know will fail.
+TPD_EXHAUSTED = bool(_AVAILABLE_KEYS) and len(_exhausted_keys) == len(_AVAILABLE_KEYS)
 
 def _print_tpd_429(msg) -> bool:
     """
@@ -132,8 +185,15 @@ def _print_tpd_429(msg) -> bool:
     if "tokens per day" not in msg.lower():
         return False
     with _key_lock:
-        key_no = _current_key_idx + 1
-        total  = len(_AVAILABLE_KEYS)
+        key_idx = _current_key_idx
+        key_no  = key_idx + 1
+        total   = len(_AVAILABLE_KEYS)
+        if key_idx not in _exhausted_keys:
+            _exhausted_keys.append(key_idx)
+        prefix = _key_prefix(_AVAILABLE_KEYS[key_idx]) if key_idx < len(_AVAILABLE_KEYS) else ''
+        if prefix:
+            _exhausted_prefixes.add(prefix)
+            _save_tpd_status(_exhausted_prefixes)
     limit_match = _re.search(r"Limit (\d+)", msg)
     used_match  = _re.search(r"Used (\d+)",  msg)
     reset_match = _re.search(r"try again in (.+?)\.", msg)
@@ -142,9 +202,9 @@ def _print_tpd_429(msg) -> bool:
         limit = int(limit_match.group(1))
         used  = int(used_match.group(1))
         pct   = int(used / limit * 100)
-        print(f"[KEY] Key {key_no}/{total} daily token limit reached: {used:,} / {limit:,} ({pct}%) — resets in {reset}")
+        print(f"[KEY] 第 {key_no}/{total} 把金鑰已耗盡每日用量: {used:,} / {limit:,} ({pct}%) — 將在 {reset} 後重置")
     else:
-        print(f"[KEY] Key {key_no}/{total} daily token limit reached (usage unknown) — resets in {reset}")
+        print(f"[KEY] 第 {key_no}/{total} 把金鑰已耗盡每日用量 (用量不明) — 將在 {reset} 後重置")
     switched = _try_switch_key()
     return not switched  # True = all exhausted (break), False = switched (retry)
 
@@ -157,7 +217,12 @@ def _call_groq(messages: list[dict], max_tokens: int) -> str | None:
     # Check TPD and compute rate-limit wait atomically
     with _key_lock:
         if TPD_EXHAUSTED:
-            print("[GROQ] TPD_EXHAUSTED — skipping call")
+            exhausted_snapshot = list(_exhausted_keys)
+            total = len(_AVAILABLE_KEYS)
+            for idx in exhausted_snapshot:
+                print(f"[GROQ] 第 {idx + 1}/{total} 把金鑰已耗盡 — 跳過呼叫")
+            if not exhausted_snapshot:
+                print(f"[GROQ] 所有金鑰已耗盡 — 跳過呼叫")
             return None
         elapsed = time.time() - LAST_API_CALL_TIME
         wait = MIN_INTERVAL - elapsed
