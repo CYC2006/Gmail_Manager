@@ -14,8 +14,11 @@ from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
 from src.categories import CAL_WORTHY, OTHER
 
-# Upgraded scope for modifying email states (read, archive, trash, star)
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+# gmail.modify: read/archive/trash/star; gmail.send: compose & send
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 # Max mail count per page
 MAX_RESULTS = 50

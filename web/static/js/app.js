@@ -58,12 +58,65 @@ function switchView(view) {
     if (activeStab === 'preference') loadPreferenceTab();
     else if (activeStab === 'account')  loadAccountTab();
     else if (activeStab === 'api_keys') loadApiKeysTab();
+  } else if (view === 'compose') {
+    $('view-compose').classList.add('active');
   }
 }
 
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
+
+$('write-btn').addEventListener('click', () => switchView('compose'));
+
+// ─── Compose logic ────────────────────────────────────────────────────────────
+
+$('compose-send-btn').addEventListener('click', async () => {
+  const to      = $('compose-to').value.trim();
+  const subject = $('compose-subject').value.trim();
+  const body    = $('compose-body').value.trim();
+  const status  = $('compose-status');
+
+  if (!to) { showStatus(status, 'error', 'Please enter a recipient.'); return; }
+
+  $('compose-send-btn').disabled = true;
+  showStatus(status, '', 'Sending…');
+
+  try {
+    const res  = await fetch('/api/send_email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, subject, body }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showStatus(status, 'success', 'Message sent!');
+      $('compose-to').value      = '';
+      $('compose-subject').value = '';
+      $('compose-body').value    = '';
+    } else {
+      showStatus(status, 'error', data.error || 'Failed to send.');
+    }
+  } catch (e) {
+    showStatus(status, 'error', 'Network error.');
+  } finally {
+    $('compose-send-btn').disabled = false;
+  }
+});
+
+$('compose-discard-btn').addEventListener('click', () => {
+  $('compose-to').value      = '';
+  $('compose-subject').value = '';
+  $('compose-body').value    = '';
+  $('compose-status').hidden = true;
+  switchView('inbox');
+});
+
+function showStatus(el, type, msg) {
+  el.textContent = msg;
+  el.className   = 'compose-status' + (type ? ' ' + type : '');
+  el.hidden      = false;
+}
 
 $('refresh-btn').addEventListener('click', () => refreshCurrentView(state.currentView));
 

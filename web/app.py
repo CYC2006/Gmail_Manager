@@ -400,6 +400,30 @@ def api_verify_key():
         return jsonify({'error': str(e)}), 500
 
 
+# ── Compose ──────────────────────────────────────────────────────────────────
+
+@app.route('/api/send_email', methods=['POST'])
+def api_send_email():
+    try:
+        import base64
+        from email.mime.text import MIMEText
+        d = request.get_json() or {}
+        to = d.get('to', '').strip()
+        subject = d.get('subject', '').strip()
+        body = d.get('body', '').strip()
+        if not to:
+            return jsonify({'error': 'Recipient required'}), 400
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['to'] = to
+        msg['subject'] = subject
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        svc = build_action_service()
+        svc.users().messages().send(userId='me', body={'raw': raw}).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/debug/ai')
 def api_debug_ai():
     """Diagnostic endpoint — tests Groq connectivity with a minimal prompt."""

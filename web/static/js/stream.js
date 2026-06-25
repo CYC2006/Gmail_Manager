@@ -169,20 +169,7 @@ export function fillNextCard(view) {
 export function removeCardFromView(email, view) {
   const card = getUiState(email.id).cards?.[view];
   if (card?.parentNode) {
-    card.style.height         = card.offsetHeight + 'px';
-    card.style.overflow       = 'hidden';
-    card.style.transformOrigin = 'top center';
-    card.style.pointerEvents  = 'none';
-    card.style.transition     = 'transform .1s ease-in, height .1s ease-in, padding .1s ease-in, opacity .1s ease-in';
-    void card.offsetHeight;
-    card.style.transform      = 'scaleY(0)';
-    card.style.height         = '0';
-    card.style.paddingTop     = '0';
-    card.style.paddingBottom  = '0';
-    card.style.opacity        = '0';
-    const done = () => { if (card.parentNode) card.remove(); };
-    card.addEventListener('transitionend', done, { once: true });
-    setTimeout(done, 200);
+    card.remove();
   }
   viewShown[view].delete(email.id);
   viewBufferedIds[view].delete(email.id);
