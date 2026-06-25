@@ -178,32 +178,47 @@ $('acc-save-btn').addEventListener('click', async () => {
 
 // ─── API Keys tab ─────────────────────────────────────────────────────────────
 
-let _apiKeyCount = 1;
 const API_KEY_MAX = 5;
 let _apiLoaded = false;
+
+const _PROVIDERS = [
+  { value: 'groq',   label: 'Groq' },
+  { value: 'nvidia', label: 'NVIDIA' },
+  { value: 'kimi',   label: 'Kimi' },
+];
 
 export async function loadApiKeysTab() {
   if (_apiLoaded) return;
   _apiLoaded = true;
 
   const res = await fetch('/api/settings/api-keys').then(r => r.json());
-  const keys = res.keys || [''];
-  _apiKeyCount = 0;
+  const entries = res.keys || [{ key: '', provider: 'groq' }];
   $('api-keys-list').innerHTML = '';
-  for (const k of keys) addApiKeyRow(k, k ? 'verified' : 'unverified');
-  updateApiKeyBtns();
+  for (const e of entries) {
+    const key      = typeof e === 'string' ? e : (e.key || '');
+    const provider = typeof e === 'string' ? 'groq' : (e.provider || 'groq');
+    addApiKeyRow(key, provider, key ? 'verified' : 'unverified');
+  }
+  _updateAddBtn();
 }
 
-function addApiKeyRow(value = '', status = 'unverified') {
-  _apiKeyCount++;
-  const idx = _apiKeyCount;
+function _rowCount() {
+  return $('api-keys-list').querySelectorAll('.api-key-row').length;
+}
+
+function _updateAddBtn() {
+  $('api-add-btn').disabled = _rowCount() >= API_KEY_MAX;
+}
+
+function addApiKeyRow(key = '', provider = 'groq', status = 'unverified') {
+  if (_rowCount() >= API_KEY_MAX) return;
 
   const row = document.createElement('div');
   row.className = 'api-key-row';
-  row.id = `api-key-row-${idx}`;
 
+  // Battery / quota icon
   const quotaIcon = document.createElement('span');
-  const prefix = value ? value.slice(0, 8) : '';
+  const prefix = key ? key.slice(0, 8) : '';
   quotaIcon.dataset.prefix = prefix;
   if (prefix) {
     const exhausted = tpdState.exhaustedKeys.has(prefix);
@@ -211,17 +226,45 @@ function addApiKeyRow(value = '', status = 'unverified') {
     quotaIcon.textContent = exhausted ? 'battery_1_bar' : 'battery_full';
     quotaIcon.title = exhausted ? '今日額度已耗盡' : '可用';
   } else {
-    quotaIcon.className = 'material-icons-round api-quota-icon';
-    quotaIcon.style.visibility = 'hidden';
+    quotaIcon.className = 'material-icons-round api-quota-icon empty';
+    quotaIcon.textContent = 'help_outline';
+    quotaIcon.title = '尚未輸入金鑰';
   }
 
+  // Provider dropdown
+  const sel = document.createElement('select');
+  sel.className = 'api-provider-select';
+  for (const p of _PROVIDERS) {
+    const opt = document.createElement('option');
+    opt.value = p.value;
+    opt.textContent = p.label;
+    if (p.value === provider) opt.selected = true;
+    sel.appendChild(opt);
+  }
+
+  // Key input
   const field = document.createElement('input');
   field.className = 'api-key-field';
   field.type = 'password';
-  field.placeholder = `Key ${idx}`;
-  field.value = value;
-  field.addEventListener('input', updateApiSaveBtn);
+  field.placeholder = 'Paste your API key…';
+  field.value = key;
+  field.addEventListener('input', () => {
+    const pfx = field.value.slice(0, 8);
+    quotaIcon.dataset.prefix = pfx;
+    if (pfx) {
+      const exhausted = tpdState.exhaustedKeys.has(pfx);
+      quotaIcon.className = 'material-icons-round api-quota-icon ' + (exhausted ? 'exhausted' : 'ok');
+      quotaIcon.textContent = exhausted ? 'battery_1_bar' : 'battery_full';
+      quotaIcon.title = exhausted ? '今日額度已耗盡' : '可用';
+    } else {
+      quotaIcon.className = 'material-icons-round api-quota-icon empty';
+      quotaIcon.textContent = 'help_outline';
+      quotaIcon.title = '尚未輸入金鑰';
+    }
+    _updateApiSaveBtn();
+  });
 
+  // Reveal toggle
   const revealBtn = document.createElement('button');
   revealBtn.className = 'api-key-reveal';
   revealBtn.title = 'Show/hide key';
@@ -229,19 +272,36 @@ function addApiKeyRow(value = '', status = 'unverified') {
   revealBtn.addEventListener('click', () => {
     const showing = field.type === 'text';
     field.type = showing ? 'password' : 'text';
-    revealBtn.querySelector('.material-icons-round').textContent = showing ? 'visibility' : 'visibility_off';
+    revealBtn.querySelector('.material-icons-round').textContent =
+      showing ? 'visibility' : 'visibility_off';
   });
 
+  // Verify badge
   const badge = document.createElement('div');
   badge.className = 'api-badge';
   setApiBadge(badge, status);
 
+  // Per-row delete button
+  const delBtn = document.createElement('button');
+  delBtn.className = 'api-row-del';
+  delBtn.title = 'Remove key';
+  delBtn.innerHTML = '<span class="material-icons-round">delete_outline</span>';
+  delBtn.addEventListener('click', () => {
+    row.remove();
+    _updateAddBtn();
+    _updateApiSaveBtn();
+  });
+
   row.appendChild(quotaIcon);
+  row.appendChild(sel);
   row.appendChild(field);
   row.appendChild(revealBtn);
   row.appendChild(badge);
+  row.appendChild(delBtn);
   $('api-keys-list').appendChild(row);
-  updateApiSaveBtn();
+
+  _updateAddBtn();
+  _updateApiSaveBtn();
 }
 
 function setApiBadge(badge, status) {
@@ -252,50 +312,42 @@ function setApiBadge(badge, status) {
     : '<span class="material-icons-round spinning" style="font-size:18px;color:var(--text-muted)">sync</span>';
 }
 
-function updateApiKeyBtns() {
-  $('api-minus-btn').disabled = _apiKeyCount <= 1;
-  $('api-plus-btn').disabled  = _apiKeyCount >= API_KEY_MAX;
-}
-
-function updateApiSaveBtn() {
+function _updateApiSaveBtn() {
   const anyFilled = [...$('api-keys-list').querySelectorAll('.api-key-field')]
     .some(f => f.value.trim());
   $('api-save-btn').disabled = !anyFilled;
 }
 
-$('api-plus-btn').addEventListener('click', () => {
-  if (_apiKeyCount < API_KEY_MAX) { addApiKeyRow(); updateApiKeyBtns(); }
-});
-
-$('api-minus-btn').addEventListener('click', () => {
-  if (_apiKeyCount > 1) {
-    const rows = $('api-keys-list').querySelectorAll('.api-key-row');
-    rows[rows.length - 1].remove();
-    _apiKeyCount--;
-    updateApiKeyBtns();
-    updateApiSaveBtn();
-  }
-});
+$('api-add-btn').addEventListener('click', () => addApiKeyRow());
 
 $('api-save-btn').addEventListener('click', async () => {
-  const fields = [...$('api-keys-list').querySelectorAll('.api-key-field')];
-  const badges = [...$('api-keys-list').querySelectorAll('.api-badge')];
-  const keys   = fields.map(f => f.value.trim()).filter(Boolean);
-  if (!keys.length) return;
+  const rows    = [...$('api-keys-list').querySelectorAll('.api-key-row')];
+  const fields  = rows.map(r => r.querySelector('.api-key-field'));
+  const selects = rows.map(r => r.querySelector('.api-provider-select'));
+  const badges  = rows.map(r => r.querySelector('.api-badge'));
 
-  fields.forEach((f, i) => { if (f.value.trim()) setApiBadge(badges[i], 'checking'); });
+  const entries = rows
+    .map((_, i) => ({ key: fields[i].value.trim(), provider: selects[i].value }))
+    .filter(e => e.key);
+
+  if (!entries.length) return;
+
+  rows.forEach((_, i) => { if (fields[i].value.trim()) setApiBadge(badges[i], 'checking'); });
   $('api-save-btn').disabled = true;
 
   const res = await fetch('/api/settings/api-keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keys }),
+    body: JSON.stringify({ keys: entries }),
   }).then(r => r.json());
 
   if (res.results) {
     let ri = 0;
-    fields.forEach((f, i) => {
-      if (f.value.trim()) { setApiBadge(badges[i], res.results[ri]?.status || 'unverified'); ri++; }
+    rows.forEach((_, i) => {
+      if (fields[i].value.trim()) {
+        setApiBadge(badges[i], res.results[ri]?.status || 'unverified');
+        ri++;
+      }
     });
   }
   $('api-save-btn').disabled = false;
@@ -304,6 +356,12 @@ $('api-save-btn').addEventListener('click', async () => {
 export function updateQuotaDots() {
   document.querySelectorAll('.api-quota-icon').forEach(el => {
     const prefix = el.dataset.prefix || '';
+    if (!prefix) {
+      el.className = 'material-icons-round api-quota-icon empty';
+      el.textContent = 'help_outline';
+      el.title = '尚未輸入金鑰';
+      return;
+    }
     const exhausted = tpdState.exhaustedKeys.has(prefix);
     el.textContent = exhausted ? 'battery_1_bar' : 'battery_full';
     el.className = 'material-icons-round api-quota-icon ' + (exhausted ? 'exhausted' : 'ok');

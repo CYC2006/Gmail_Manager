@@ -11,6 +11,7 @@ WEB_SETTINGS_FILE = os.path.join(_DATA_DIR, "web_settings.json")
 
 _DEFAULTS = {
     "groq_api_keys": [],
+    "api_keys": [],  # [{key: str, provider: str}]
 }
 
 _WEB_DEFAULTS = {"theme": "dark"}
@@ -59,6 +60,29 @@ def save_groq_api_keys(keys: list[str]):
     """Save list of Groq API keys."""
     cfg = load_config()
     cfg["groq_api_keys"] = [k.strip() for k in keys]
+    save_config(cfg)
+
+
+def get_api_keys() -> list[dict]:
+    """Return list of saved API key entries [{key, provider}].
+    Migrates old groq_api_keys format on first call if api_keys is empty."""
+    cfg = load_config()
+    entries = cfg.get("api_keys", [])
+    entries = [e for e in entries if isinstance(e, dict) and e.get("key", "").strip()]
+    if not entries:
+        # One-time migration from old flat groq_api_keys list
+        old = [k for k in cfg.get("groq_api_keys", []) if k.strip()]
+        entries = [{"key": k, "provider": "groq"} for k in old]
+    return entries
+
+
+def save_api_keys(entries: list[dict]):
+    """Save list of API key entries [{key, provider}]."""
+    cfg = load_config()
+    cfg["api_keys"] = [
+        {"key": e["key"].strip(), "provider": e.get("provider", "groq")}
+        for e in entries if e.get("key", "").strip()
+    ]
     save_config(cfg)
 
 

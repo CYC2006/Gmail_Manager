@@ -28,6 +28,7 @@ import src.ai_agent as _ai_agent
 from src.config_manager import (
     load_user_prefs, save_user_prefs,
     get_groq_api_keys, save_groq_api_keys,
+    get_api_keys, save_api_keys,
     get_selected_interests, save_selected_interests,
     get_theme, save_theme,
 )
@@ -356,21 +357,32 @@ def api_save_interests():
 
 @app.route('/api/settings/api-keys')
 def api_get_keys():
-    keys = get_groq_api_keys()
-    return jsonify({'keys': keys if keys else ['']})
+    entries = get_api_keys()
+    return jsonify({'keys': entries if entries else [{'key': '', 'provider': 'groq'}]})
 
 
 @app.route('/api/settings/api-keys', methods=['POST'])
 def api_save_keys():
     try:
         d = request.get_json() or {}
-        keys = [k.strip() for k in d.get('keys', []) if k.strip()]
+        raw = d.get('keys', [])
+        # Accept both [{key, provider}] and legacy [str]
+        entries = []
+        for item in raw:
+            if isinstance(item, dict):
+                k = item.get('key', '').strip()
+                p = item.get('provider', 'groq')
+            else:
+                k = str(item).strip()
+                p = 'groq'
+            if k:
+                entries.append({'key': k, 'provider': p})
         results = []
-        for key in keys:
-            status = verify_api_key(key)
-            results.append({'key': key, 'status': status})
-        verified = [r['key'] for r in results if r['status'] == 'verified']
-        save_groq_api_keys(verified)
+        for entry in entries:
+            status = verify_api_key(entry['key'], entry['provider'])
+            results.append({'key': entry['key'], 'provider': entry['provider'], 'status': status})
+        verified = [r for r in results if r['status'] == 'verified']
+        save_api_keys(verified)
         reload_keys()
         return jsonify({'ok': True, 'results': results})
     except Exception as e:
@@ -382,7 +394,8 @@ def api_verify_key():
     try:
         d = request.get_json() or {}
         key = d.get('key', '').strip()
-        return jsonify({'status': verify_api_key(key)})
+        provider = d.get('provider', 'groq')
+        return jsonify({'status': verify_api_key(key, provider)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
