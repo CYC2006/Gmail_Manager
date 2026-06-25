@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from src.email_parser import get_email_body
 from src.ai_agent import categorize_email, extract_moodle_events
 import src.ai_agent as _ai_agent
-from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs, save_email_body, get_cached_body
+from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs, save_email_body, get_cached_body, get_detail_analysis
 from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
 from src.categories import CAL_WORTHY, OTHER
@@ -216,7 +216,8 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     matched_prefs = match_preferences(subject, "", cached.get("category", ""))
                     save_matched_prefs(email_id, matched_prefs)
                 display_subject = cached.get("summary") if is_moodle else None
-                cached_body = get_cached_body(email_id)
+                cached_body     = get_cached_body(email_id)
+                cached_analysis = get_detail_analysis(email_id)
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
@@ -227,6 +228,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     "_ts": internal_date,
                     "matched_prefs": matched_prefs,
                     "_body": cached_body,
+                    "_detail_analysis": cached_analysis,
                 }
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time,

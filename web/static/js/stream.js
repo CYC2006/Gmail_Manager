@@ -88,6 +88,12 @@ export function startBodyPrefetch() {
 // ─── Email distribution ───────────────────────────────────────────────────────
 
 export function distributeEmail(email) {
+  if (email._detail_analysis) {
+    const ui = getUiState(email.id);
+    ui.aiResult = email._detail_analysis;
+    ui.aiLoaded = true;
+    ui.aiQueued = true;
+  }
   addToView(email, 'all_mail');
   if (email.is_in_inbox) addToView(email, 'inbox');
   if (email.is_moodle)   addToView(email, 'moodle');

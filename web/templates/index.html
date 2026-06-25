@@ -126,43 +126,6 @@
       <div id="email-list" class="email-list"></div>
     </section>
 
-    <!-- ─── Compose view ───────────────────────────────────────────────────── -->
-    <section id="view-compose" class="view">
-      <div class="content-header">
-        <div class="header-left">
-          <span class="material-icons-round header-icon">edit</span>
-          <h1 class="header-title">New Message</h1>
-        </div>
-      </div>
-
-      <div class="compose-wrap">
-        <div class="compose-card">
-          <div class="compose-field-row">
-            <label class="compose-label">To</label>
-            <input id="compose-to" class="compose-input" type="email" placeholder="recipient@example.com" />
-          </div>
-          <div class="compose-divider"></div>
-          <div class="compose-field-row">
-            <label class="compose-label">Subject</label>
-            <input id="compose-subject" class="compose-input" type="text" placeholder="Subject" />
-          </div>
-          <div class="compose-divider"></div>
-          <textarea id="compose-body" class="compose-body" placeholder="Write your message here…"></textarea>
-          <div class="compose-actions">
-            <button id="compose-send-btn" class="compose-send-btn">
-              <span class="material-icons-round">send</span>
-              Send
-            </button>
-            <button id="compose-discard-btn" class="compose-discard-btn">
-              <span class="material-icons-round">delete_outline</span>
-              Discard
-            </button>
-          </div>
-          <div id="compose-status" class="compose-status" hidden></div>
-        </div>
-      </div>
-    </section>
-
     <!-- ─── Calendar view ──────────────────────────────────────────────────── -->
     <section id="view-calendar" class="view">
       <div class="content-header">
@@ -484,6 +447,44 @@
     <div class="ce-actions">
       <button class="btn-secondary" id="ce-cancel-btn">Cancel</button>
       <button class="btn-primary" id="ce-save-btn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Compose Modal
+══════════════════════════════════════════════════════════════════════════════ -->
+<div id="compose-backdrop" class="modal-backdrop">
+  <div class="modal-box compose-modal-box">
+    <div class="modal-header">
+      <h2 class="compose-modal-title">New Message</h2>
+      <button class="icon-btn" id="compose-close-btn" title="Discard">
+        <span class="material-icons-round">close</span>
+      </button>
+    </div>
+
+    <div class="compose-field-row">
+      <label class="compose-label">To</label>
+      <input id="compose-to" class="compose-input" type="email" placeholder="recipient@example.com" />
+    </div>
+    <div class="modal-divider"></div>
+    <div class="compose-field-row">
+      <label class="compose-label">Subject</label>
+      <input id="compose-subject" class="compose-input" type="text" placeholder="Subject" />
+    </div>
+    <div class="modal-divider"></div>
+    <textarea id="compose-body" class="compose-body" placeholder="Write your message here…"></textarea>
+
+    <div class="modal-divider"></div>
+    <div class="compose-footer">
+      <button id="compose-send-btn" class="compose-send-btn">
+        <span class="material-icons-round">send</span>
+        Send
+      </button>
+      <button id="compose-discard-btn" class="icon-btn" title="Discard">
+        <span class="material-icons-round">delete_outline</span>
+      </button>
+      <div id="compose-status" class="compose-status" hidden></div>
     </div>
   </div>
 </div>

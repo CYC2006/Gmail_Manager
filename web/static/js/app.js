@@ -58,8 +58,6 @@ function switchView(view) {
     if (activeStab === 'preference') loadPreferenceTab();
     else if (activeStab === 'account')  loadAccountTab();
     else if (activeStab === 'api_keys') loadApiKeysTab();
-  } else if (view === 'compose') {
-    $('view-compose').classList.add('active');
   }
 }
 
@@ -67,9 +65,28 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => switchView(btn.dataset.view));
 });
 
-$('write-btn').addEventListener('click', () => switchView('compose'));
+// ─── Compose modal ────────────────────────────────────────────────────────────
 
-// ─── Compose logic ────────────────────────────────────────────────────────────
+const composeBackdrop = $('compose-backdrop');
+
+function openCompose() {
+  composeBackdrop.classList.add('open');
+  $('compose-to').focus();
+}
+
+function closeCompose() {
+  composeBackdrop.classList.remove('open');
+  $('compose-to').value      = '';
+  $('compose-subject').value = '';
+  $('compose-body').value    = '';
+  $('compose-status').hidden = true;
+}
+
+$('write-btn').addEventListener('click', openCompose);
+$('compose-close-btn').addEventListener('click', closeCompose);
+$('compose-discard-btn').addEventListener('click', closeCompose);
+composeBackdrop.addEventListener('click', e => { if (e.target === composeBackdrop) closeCompose(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && composeBackdrop.classList.contains('open')) closeCompose(); });
 
 $('compose-send-btn').addEventListener('click', async () => {
   const to      = $('compose-to').value.trim();
@@ -77,10 +94,10 @@ $('compose-send-btn').addEventListener('click', async () => {
   const body    = $('compose-body').value.trim();
   const status  = $('compose-status');
 
-  if (!to) { showStatus(status, 'error', 'Please enter a recipient.'); return; }
+  if (!to) { showComposeStatus('error', 'Please enter a recipient.'); return; }
 
   $('compose-send-btn').disabled = true;
-  showStatus(status, '', 'Sending…');
+  showComposeStatus('', 'Sending…');
 
   try {
     const res  = await fetch('/api/send_email', {
@@ -90,29 +107,20 @@ $('compose-send-btn').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (data.ok) {
-      showStatus(status, 'success', 'Message sent!');
-      $('compose-to').value      = '';
-      $('compose-subject').value = '';
-      $('compose-body').value    = '';
+      showComposeStatus('success', 'Message sent!');
+      setTimeout(closeCompose, 1200);
     } else {
-      showStatus(status, 'error', data.error || 'Failed to send.');
+      showComposeStatus('error', data.error || 'Failed to send.');
     }
   } catch (e) {
-    showStatus(status, 'error', 'Network error.');
+    showComposeStatus('error', 'Network error.');
   } finally {
     $('compose-send-btn').disabled = false;
   }
 });
 
-$('compose-discard-btn').addEventListener('click', () => {
-  $('compose-to').value      = '';
-  $('compose-subject').value = '';
-  $('compose-body').value    = '';
-  $('compose-status').hidden = true;
-  switchView('inbox');
-});
-
-function showStatus(el, type, msg) {
+function showComposeStatus(type, msg) {
+  const el = $('compose-status');
   el.textContent = msg;
   el.className   = 'compose-status' + (type ? ' ' + type : '');
   el.hidden      = false;
