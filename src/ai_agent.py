@@ -122,11 +122,11 @@ def _try_switch_key() -> bool:
     global _current_key_idx, TPD_EXHAUSTED, _exhausted_keys
     with _key_lock:
         total = len(_AVAILABLE_KEYS)
-        next_idx = _current_key_idx + 1
-        if next_idx < total:
-            _current_key_idx = next_idx
-            print(f"[KEY] Switching to key {next_idx + 1}/{total}")
-            return True
+        for next_idx in range(_current_key_idx + 1, total):
+            if next_idx not in _exhausted_keys:
+                _current_key_idx = next_idx
+                print(f"[KEY] Switching to key {next_idx + 1}/{total}")
+                return True
         TPD_EXHAUSTED = True
     print(f"[KEY] All {total} key(s) daily token limit exhausted — AI calls stopped")
     return False
