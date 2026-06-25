@@ -225,11 +225,9 @@ def _call_api(messages: list[dict], max_tokens: int) -> str | None:
                 _last_call_times[provider] = next_slot
                 wait = next_slot - now
             if wait > 0:
-                print(f"[API] Rate-limit sleep {wait:.1f}s ({provider})")
                 time.sleep(wait)
 
             url = cfg["base_url"] + "/chat/completions"
-            print(f"[API] provider={provider} model={cfg['model']} max_tokens={max_tokens} key_idx={key_idx}")
             resp = httpx.post(
                 url,
                 json={
@@ -247,7 +245,6 @@ def _call_api(messages: list[dict], max_tokens: int) -> str | None:
 
             resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"].strip()
-            print(f"[API] OK — response length {len(text)} chars")
             return text
 
         except httpx.HTTPStatusError as e:
@@ -277,7 +274,7 @@ def categorize_email(email_body, is_moodle=False):
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": f"Email body:\n{email_body[:3000]}"},
         ],
-        max_tokens=100 if is_moodle else 20,
+        max_tokens=100 if is_moodle else 60,
     )
     if raw is None:
         return None
