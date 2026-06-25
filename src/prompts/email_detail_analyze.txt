@@ -20,13 +20,16 @@ Return this exact JSON schema:
 }
 
 Rules:
-- summary      : always 繁體中文; 1–2 sentences max; state who sent it and what it is about — the big picture TLDR only.
+- summary      : always 繁體中文; EXACTLY 1 sentence; describe only WHO sent it and WHAT TYPE of email this is.
+                 FORBIDDEN in summary: any numbers, dates, locations, names, amounts, conditions, or specific facts.
+                 Good example: "性別平等教育委員會寄出的工讀生徵才公告。"
+                 Bad example:  "工作地點在光復校區，薪資196元/小時。" ← contains specifics, forbidden.
 - event_times  : extract EVERY date, deadline, exam time, event time mentioned. Empty array [] if none.
 - urls         : extract EVERY unique URL or hyperlink in the email — deduplicate by URL (same URL must appear only once).
                  Label must be specific and identifiable: use the link's anchor text if meaningful, or infer from context (e.g. 報名系統、課程官網、取消訂閱).
                  Never use vague labels like "連結" or repeat the same generic phrase for different links.
                  Empty array [] if none.
-- key_points   : 3–5 bullet points in 繁體中文 with SPECIFIC, CONCRETE details the student needs to know or act on — e.g. eligibility conditions, required documents, registration steps, venue, cost, quota limits, what to prepare.
-                 NEVER restate or paraphrase sentences already in summary. Every bullet must add NEW information not in summary.
-                 Empty array [] if the email has no concrete actionable details beyond the summary.
+- key_points   : 3–5 bullet points in 繁體中文, each containing ONE specific concrete fact — location, salary, eligibility, required documents, steps, quota, what to bring, exam rules, etc.
+                 These are the details FORBIDDEN from summary. Every bullet must be a standalone fact a student would highlight.
+                 Empty array [] only if the email is purely informational with zero actionable details.
 - Never add fields outside the schema above.
