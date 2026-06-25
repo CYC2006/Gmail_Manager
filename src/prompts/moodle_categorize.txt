@@ -19,11 +19,13 @@ Important distinctions:
 - Releasing answer keys, solutions, supplementary materials, or homework instructions → "作業相關"
 
 Also extract:
-- course_name: The Chinese name of the course (e.g. "機率與統計", "資料視覺化與探索").
-  Look for it in the email subject or body. Course codes like "1142_F722700" are NOT course names.
-  If the Chinese course name appears anywhere in the email (subject line or body), use it.
+- course_name: The Traditional Chinese (繁體中文) name of the course (e.g. "機率與統計", "資料視覺化與探索").
+  Moodle emails often contain a pattern like "1142_課程中文名稱_ENGCODE" — extract only the 課程中文名稱 part.
+  Course codes like "1142_F722700" are NOT course names. Never invent or translate a name.
+  If the Chinese course name appears anywhere in the email (subject line or body), use it exactly as written.
   If you truly cannot find a Chinese name, return an empty string.
-- brief: A concise Chinese summary of this email's content in 10 words or less, excluding the course name.
+- brief: A concise summary in 繁體中文 of this email's content in 10 words or less, excluding the course name.
+  Must be natural, grammatically correct Traditional Chinese. Never use Simplified Chinese characters.
 
 Return exactly:
 {"category": "<exact label>", "course_name": "<課程中文名稱>", "brief": "<簡短摘要>"}
