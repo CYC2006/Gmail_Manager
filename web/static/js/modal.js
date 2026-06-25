@@ -164,7 +164,7 @@ export function renderAiResult(data) {
     }
   }
   if (data.key_points?.length) {
-    html += '<h4>Key Points</h4><ul style="margin:0 0 6px 1.2em;padding:0">';
+    html += '<h4>Action Points</h4><ul style="margin:0 0 6px 1.2em;padding:0">';
     for (const pt of data.key_points) {
       html += `<li style="margin-bottom:4px">${escHtml(pt)}</li>`;
     }

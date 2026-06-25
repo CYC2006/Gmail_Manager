@@ -90,7 +90,9 @@ def main(page: ft.Page):
     # ====================
 
     # scrollable list that holds all visible email cards
-    email_list_view = ft.ListView(expand=True, spacing=4, padding=ft.Padding.only(right=8))
+    # ft.Column+scroll avoids AnimatedList (used by ListView in Flet 0.84) which
+    # causes an unwanted card-compression animation on deletion
+    email_list_view = ft.Column(expand=True, spacing=4, scroll=ft.ScrollMode.AUTO, scroll_bar_visible=False)
 
     # shows the authenticated user's address under the app title
     user_email_text = ft.Text("Loading...", size=12, color=ft.Colors.OUTLINE)
@@ -342,16 +344,6 @@ def main(page: ft.Page):
                     section_header(ft.Icons.SUMMARIZE, "Summary"),
                     ft.Container(
                         content=ft.Text(result["summary"], size=13, color="#dddddd", selectable=True),
-                        padding=ft.Padding.only(left=8, bottom=4),
-                    ),
-                ]
-
-            # ── 待辦事項 ──
-            if result.get("action_required"):
-                modal_ai_scroll.controls += [
-                    section_header(ft.Icons.CHECK_CIRCLE_OUTLINE, "Action Items"),
-                    ft.Container(
-                        content=ft.Text(result["action_required"], size=13, color=ft.Colors.ORANGE_200, selectable=True),
                         padding=ft.Padding.only(left=8, bottom=4),
                     ),
                 ]
@@ -1164,6 +1156,7 @@ def main(page: ft.Page):
             # inner buttons receive them; Container.on_click does not have this issue.
             card_inner.on_click = lambda e: page.run_task(on_tap, e)
             card = ft.Card(
+                key=ft.ValueKey(data['id']),
                 margin=ft.Margin.symmetric(horizontal=10, vertical=3),
                 content=card_inner,
             )

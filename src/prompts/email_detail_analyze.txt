@@ -7,12 +7,11 @@ You MUST respond with valid JSON only — no markdown, no extra text, no explana
 Return this exact JSON schema:
 {
   "summary": "<2–3 sentence summary in 繁體中文 describing what this email is about>",
-  "action_required": "<what the reader should do, in 繁體中文 — or null if nothing is needed>",
   "event_times": [
     {"label": "<description of the time, e.g. 截止日期 / 活動時間 / 考試時間>", "time": "<date/time as written or YYYY-MM-DD HH:MM>"}
   ],
   "urls": [
-    {"label": "<short description of the link, e.g. 課程連結 / 報名表單 / 官方網站>", "url": "<full URL>"}
+    {"label": "<specific site name or page title, e.g. 報名表單、課程官網 (BSI)、NCKU Moodle>", "url": "<full URL>"}
   ],
   "key_points": [
     "<important point in 繁體中文>",
@@ -21,9 +20,13 @@ Return this exact JSON schema:
 }
 
 Rules:
-- summary      : always 繁體中文; 2–3 sentences; cover who sent it, what it says, and why it matters.
-- action_required : what the student must actually do (e.g. 「在 4/30 前繳交作業」); null if purely informational.
+- summary      : always 繁體中文; 1–2 sentences max; state who sent it and what it is about — the big picture TLDR only.
 - event_times  : extract EVERY date, deadline, exam time, event time mentioned. Empty array [] if none.
-- urls         : extract EVERY URL or hyperlink in the email. Empty array [] if none.
-- key_points   : 3–5 bullet points in 繁體中文 covering the most important facts. Empty array [] if the email is trivial.
+- urls         : extract EVERY unique URL or hyperlink in the email — deduplicate by URL (same URL must appear only once).
+                 Label must be specific and identifiable: use the link's anchor text if meaningful, or infer from context (e.g. 報名系統、課程官網、取消訂閱).
+                 Never use vague labels like "連結" or repeat the same generic phrase for different links.
+                 Empty array [] if none.
+- key_points   : 3–5 bullet points in 繁體中文 with SPECIFIC, CONCRETE details the student needs to know or act on — e.g. eligibility conditions, required documents, registration steps, venue, cost, quota limits, what to prepare.
+                 NEVER restate or paraphrase sentences already in summary. Every bullet must add NEW information not in summary.
+                 Empty array [] if the email has no concrete actionable details beyond the summary.
 - Never add fields outside the schema above.
