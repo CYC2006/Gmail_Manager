@@ -22,9 +22,9 @@ export function initStream({ buildCard, onCardClick }) {
 
 // ─── Prefetch AI analysis ─────────────────────────────────────────────────────
 
-export function prefetchAiAnalysis(email) {
+export function prefetchAiAnalysis(email, onDone) {
   const ui = getUiState(email.id);
-  if (ui.aiLoaded || ui.aiQueued || tpdState.allExhausted) return;
+  if (ui.aiLoaded || ui.aiQueued || tpdState.allExhausted) { onDone?.(); return; }
   ui.aiQueued = true;
   fetch(`/api/email/${email.id}/analyze`)
     .then(r => r.json())
@@ -32,7 +32,6 @@ export function prefetchAiAnalysis(email) {
       if (!d._failed && !d.error) {
         ui.aiResult = d;
         ui.aiLoaded = true;
-        // If this email is open and AI tab is active, render immediately
         if (state.currentEmail?.id === email.id) {
           const aiTab = document.getElementById('tab-ai');
           if (aiTab?.classList.contains('active')) {
@@ -45,7 +44,22 @@ export function prefetchAiAnalysis(email) {
         ui.aiQueued = false;
       }
     })
-    .catch(() => { ui.aiQueued = false; });
+    .catch(() => { ui.aiQueued = false; })
+    .finally(() => onDone?.());
+}
+
+export function startAiPrefetch() {
+  const emails = [...viewBuffer['inbox']];
+  let idx = 0;
+  function next() {
+    if (tpdState.allExhausted) return;
+    if (idx >= emails.length) return;
+    const email = emails[idx++];
+    const ui = getUiState(email.id);
+    if (ui.aiLoaded || ui.aiQueued) { next(); return; }
+    prefetchAiAnalysis(email, () => setTimeout(next, 500));
+  }
+  next();
 }
 
 // Forward reference — assigned by modal.js via initStream (not circular since
@@ -77,11 +91,6 @@ export function distributeEmail(email) {
   addToView(email, 'all_mail');
   if (email.is_in_inbox) addToView(email, 'inbox');
   if (email.is_moodle)   addToView(email, 'moodle');
-
-  if (email.matched_prefs?.length > 0) {
-    const delay = streamFlags.matchedPrefetchIdx++ * 3000;
-    setTimeout(() => prefetchAiAnalysis(email), delay);
-  }
 }
 
 // ─── View buffer management ───────────────────────────────────────────────────
@@ -243,6 +252,7 @@ export function startSharedStream() {
     streamFlags.autoRetried   = false;
     syncLoadingBar();
     startBodyPrefetch();
+    startAiPrefetch();
   });
 
   source.addEventListener('error', ev => {
@@ -327,7 +337,6 @@ export function refreshCurrentView(view) {
     streamFlags.sharedLoaded  = false;
     streamFlags.sharedLoading = false;
     streamFlags.autoRetried   = false;
-    streamFlags.matchedPrefetchIdx = 0;  // fix: reset stagger counter on refresh
     for (const v of ['inbox', 'moodle', 'all_mail']) {
       viewListEls[v].innerHTML = '';
       viewStats[v] = { total: 0, unread: 0, starred: 0 };

@@ -53,7 +53,6 @@ export const streamFlags = {
   trashLoaded:   false,
   trashLoading:  false,
   autoRetried:   false,
-  matchedPrefetchIdx: 0,
 };
 
 // ─── TPD state ────────────────────────────────────────────────────────────────
