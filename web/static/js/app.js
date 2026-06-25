@@ -11,7 +11,7 @@ import { switchSettingsTab, loadPreferenceTab, loadAccountTab, loadApiKeysTab, u
 
 // ─── Wire cross-module dependencies ──────────────────────────────────────────
 
-initStream({ buildCard, onCardClick: openModal });
+initStream({ buildCard, onCardClick: openModal, onStreamDone: loadTpdStatus });
 initActions({ syncModalStar });
 
 // ─── View routing ─────────────────────────────────────────────────────────────
