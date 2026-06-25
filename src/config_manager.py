@@ -7,9 +7,13 @@ os.makedirs(_DATA_DIR, exist_ok=True)
 CONFIG_FILE       = os.path.join(_DATA_DIR, "config.json")
 USER_PREFS_FILE   = os.path.join(_DATA_DIR, "user_preferences.json")
 
+WEB_SETTINGS_FILE = os.path.join(_DATA_DIR, "web_settings.json")
+
 _DEFAULTS = {
     "groq_api_keys": [],
 }
+
+_WEB_DEFAULTS = {"theme": "dark"}
 
 _USER_PREFS_DEFAULTS = {
     "selected_major":      "",   # single department id
@@ -134,6 +138,37 @@ def save_user_gender(gender: str):
     prefs = load_user_prefs()
     prefs["user_gender"] = gender
     save_user_prefs(prefs)
+
+
+def load_web_settings() -> dict:
+    if not os.path.exists(WEB_SETTINGS_FILE):
+        return dict(_WEB_DEFAULTS)
+    try:
+        with open(WEB_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for k, v in _WEB_DEFAULTS.items():
+            data.setdefault(k, v)
+        return data
+    except Exception:
+        return dict(_WEB_DEFAULTS)
+
+
+def save_web_settings(data: dict):
+    try:
+        with open(WEB_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[CONFIG] Failed to save web_settings: {e}")
+
+
+def get_theme() -> str:
+    return load_web_settings().get("theme", "dark")
+
+
+def save_theme(theme: str):
+    s = load_web_settings()
+    s["theme"] = theme
+    save_web_settings(s)
 
 
 def get_gmail_account() -> str:

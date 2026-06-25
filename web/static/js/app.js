@@ -187,6 +187,12 @@ function startSharedStream() {
 
   source.onmessage = e => {
     const email = JSON.parse(e.data);
+    // _body: non-null means body has been fetched before ('' = fetched but empty).
+    // null means never fetched — don't populate bodyCache so prefetch will fetch it.
+    if (email._body !== null && email._body !== undefined) {
+      bodyCache.set(email.id, email._body);
+      delete email._body;
+    }
     distributeEmail(email);
   };
 
@@ -263,19 +269,22 @@ function prefetchAiAnalysis(email) {
 }
 
 function startBodyPrefetch() {
-  const emails = [...viewBuffer['inbox']];
+  const emails = [...viewBuffer['inbox']].filter(e => !bodyCache.has(e.id));
+  if (emails.length === 0) return;
+  const CONCURRENCY = 4;  // 4 parallel fetches; well within Gmail API limits
+  const DELAY_MS    = 150; // ms between each slot's fetches
   let idx = 0;
-  function next() {
+  function runSlot() {
     if (idx >= emails.length) return;
     const email = emails[idx++];
-    if (bodyCache.has(email.id)) { next(); return; }  // already cached, skip instantly
     fetch(`/api/email/${email.id}/body`)
       .then(r => r.json())
-      .then(d => { if (d.body) bodyCache.set(email.id, d.body); })
+      .then(d => { if (!d.error) bodyCache.set(email.id, d.body || ''); })
       .catch(() => {})
-      .finally(() => setTimeout(next, 800));
+      .finally(() => setTimeout(runSlot, DELAY_MS));
   }
-  next();
+  // Launch CONCURRENCY parallel slots
+  for (let i = 0; i < Math.min(CONCURRENCY, emails.length); i++) runSlot();
 }
 
 function distributeEmail(email) {

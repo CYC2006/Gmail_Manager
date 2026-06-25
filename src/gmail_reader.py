@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 from src.email_parser import get_email_body
 from src.ai_agent import categorize_email, extract_moodle_events
 import src.ai_agent as _ai_agent
-from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs, save_email_body
+from src.db_manager import init_db, get_cached_result, save_analysis, save_matched_prefs, save_email_body, get_cached_body
 from src.preference_matcher import match_preferences
 from src.calendar_db import init_calendar_db, add_event
 from src.categories import CAL_WORTHY, OTHER
@@ -144,7 +144,7 @@ def _batch_fetch_metadata(service, message_ids):
 
 def _parse_meta(msg_meta):
     """Extract sender, subject, receive_time, is_unread, is_starred from a metadata response."""
-    label_ids = msg_meta.get("labelIds", [])
+    label_ids = msg_meta.get("labelIds") or []
     headers   = msg_meta.get("payload", {}).get("headers", [])
     sender, subject, receive_time = "Unknown Sender", "No Subject", "Unknown Time"
     for h in headers:
@@ -199,7 +199,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                 continue
 
             sender, subject, receive_time, is_unread, is_starred = _parse_meta(msg_meta)
-            label_ids  = msg_meta.get("labelIds", [])
+            label_ids  = msg_meta.get("labelIds") or []
             is_in_inbox = "INBOX" in label_ids
             is_moodle  = "moodle" in sender.lower()
 
@@ -213,6 +213,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     matched_prefs = match_preferences(subject, "", cached.get("category", ""))
                     save_matched_prefs(email_id, matched_prefs)
                 display_subject = cached.get("summary") if is_moodle else None
+                cached_body = get_cached_body(email_id)
                 yield {
                     "id": email_id, "sender": sender, "time": receive_time[:16],
                     "category": cached.get("category"), "subject": subject,
@@ -221,6 +222,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                     "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                     "_ts": internal_date,
                     "matched_prefs": matched_prefs,
+                    "_body": cached_body,
                 }
             else:
                 ai_queue.append((i, email_id, sender, subject, receive_time,
@@ -244,6 +246,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                 "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                 "_ts": internal_date,
                 "matched_prefs": [],
+                "_body": get_cached_body(email_id),
             }
             continue
 
@@ -290,6 +293,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                             print(f"[CAL] Added {added} event(s) for {email_id}")
                 else:
                     print(f"[WARN] Categorization returned None for {email_id}")
+                    save_email_body(email_id, email_body)
 
             yield {
                 "id": email_id, "sender": sender, "time": receive_time[:16],
@@ -299,6 +303,7 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                 "is_in_inbox": is_in_inbox, "_index": i + page_offset,
                 "_ts": internal_date,
                 "matched_prefs": matched_prefs,
+                "_body": email_body if len(email_body) > 20 else None,
             }
         except Exception as error:
             print(f"[ERROR] Pass 2 failed for {email_id}: {error}")
@@ -333,7 +338,7 @@ def fetch_simple_emails(service, query, page_token=None, page_offset=0):
         if not msg_meta:
             continue
         sender, subject, receive_time, is_unread, is_starred = _parse_meta(msg_meta)
-        label_ids = msg_meta.get("labelIds", [])
+        label_ids = msg_meta.get("labelIds") or []
         yield {
             "id": email_id, "sender": sender, "time": receive_time[:16],
             "category": OTHER, "subject": subject,

@@ -40,6 +40,23 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Dedicated body cache table — independent of AI analysis state.
+        # body = '' means "fetched but no content"; NULL row = never fetched.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS email_bodies (
+                email_id   TEXT PRIMARY KEY,
+                body       TEXT NOT NULL DEFAULT '',
+                fetched_at TEXT
+            )
+        ''')
+        # One-time migration: copy existing analyzed_emails.email_body into email_bodies
+        conn.execute('''
+            INSERT OR IGNORE INTO email_bodies (email_id, body, fetched_at)
+            SELECT email_id, email_body, last_seen
+            FROM analyzed_emails
+            WHERE email_body IS NOT NULL AND email_body != ''
+        ''')
+
     # purge entries not seen in any fetch for over 30 days
     cleanup_old_entries(days=30)
 
@@ -126,24 +143,27 @@ def get_detail_analysis(email_id):
     return None
 
 
-# get cached email body text (returns str or None)
+# get cached email body text.
+# Returns str (possibly '') if body has been fetched before, None if never fetched.
+# Callers must check `is not None` to distinguish "empty body" from "not yet fetched".
 def get_cached_body(email_id):
     with sqlite3.connect(DB_NAME) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute('SELECT email_body FROM analyzed_emails WHERE email_id = ?', (email_id,))
+        cursor = conn.execute('SELECT body FROM email_bodies WHERE email_id = ?', (email_id,))
         row = cursor.fetchone()
-    if row and row['email_body']:
-        return row['email_body']
+    if row is not None:
+        return row[0]  # may be '' — that's intentional (marks as already fetched)
     return None
 
 
-# store email body text for an email (UPDATE only — row must already exist)
+# store email body text. Always call this after fetching, even if body is empty.
+# An empty-string body is stored as '' to mark the email as "fetched, no content",
+# preventing repeated re-fetches for emails whose body cannot be extracted.
 def save_email_body(email_id, body_text):
+    now = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute(
-            'UPDATE analyzed_emails SET email_body = ? WHERE email_id = ?',
-            (body_text, email_id)
+            'INSERT OR REPLACE INTO email_bodies (email_id, body, fetched_at) VALUES (?, ?, ?)',
+            (email_id, body_text if body_text else '', now)
         )
 
 

@@ -29,6 +29,7 @@ from src.config_manager import (
     load_user_prefs, save_user_prefs,
     get_groq_api_keys, save_groq_api_keys,
     get_selected_interests, save_selected_interests,
+    get_theme, save_theme,
 )
 from src.calendar_db import (
     init_calendar_db, add_custom_event, delete_event,
@@ -126,13 +127,12 @@ def stream_emails():
 def api_email_body(email_id):
     try:
         cached = get_cached_body(email_id)
-        if cached:
+        if cached is not None:  # '' means fetched but empty — still skip re-fetch
             return jsonify({'body': cached})
         svc = build_action_service()
         msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
         body = get_email_body(msg.get('payload', {}))
-        if body:
-            save_email_body(email_id, body)
+        save_email_body(email_id, body)  # always save, even empty string
         return jsonify({'body': body})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -154,10 +154,16 @@ def api_analyze(email_id):
         if _ai_agent.TPD_EXHAUSTED:
             print(f"[ANALYZE] TPD exhausted — skipping {email_id}")
             return jsonify({'_failed': True, '_tpd': True})
-        svc = build_action_service()
-        msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
-        body = get_email_body(msg.get('payload', {}))
-        print(f"[ANALYZE] email_id={email_id} body_len={len(body) if body else 0} body_preview={repr(body[:120]) if body else 'EMPTY'}")
+        cached_body = get_cached_body(email_id)
+        if cached_body is not None:
+            body = cached_body
+            print(f"[ANALYZE] email_id={email_id} body from DB cache, len={len(body)}")
+        else:
+            svc = build_action_service()
+            msg = svc.users().messages().get(userId='me', id=email_id, format='full').execute()
+            body = get_email_body(msg.get('payload', {}))
+            save_email_body(email_id, body)  # always save, even empty string
+            print(f"[ANALYZE] email_id={email_id} body_len={len(body) if body else 0} body_preview={repr(body[:120]) if body else 'EMPTY'}")
         meta = get_cached_result(email_id)
         category = meta.get('category') if meta else None
         result = analyze_email_detail(body, category=category)
@@ -282,43 +288,16 @@ def api_calendar_delete(event_id):
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 
-SETTINGS_PATH = os.path.join(PROJECT_ROOT, 'data', 'web_settings.json')
-
-_web_settings_cache = None
-_web_settings_lock  = threading.Lock()
-
-def _load_web_settings():
-    global _web_settings_cache
-    with _web_settings_lock:
-        if _web_settings_cache is not None:
-            return dict(_web_settings_cache)
-        if os.path.exists(SETTINGS_PATH):
-            with open(SETTINGS_PATH) as f:
-                _web_settings_cache = json.load(f)
-        else:
-            _web_settings_cache = {}
-        return dict(_web_settings_cache)
-
-def _save_web_settings(s):
-    global _web_settings_cache
-    with _web_settings_lock:
-        with open(SETTINGS_PATH, 'w') as f:
-            json.dump(s, f, indent=2)
-        _web_settings_cache = dict(s)
-
-
 @app.route('/api/settings/theme')
 def api_get_theme():
-    return jsonify({'theme': _load_web_settings().get('theme', 'dark')})
+    return jsonify({'theme': get_theme()})
 
 
 @app.route('/api/settings/theme', methods=['POST'])
 def api_set_theme():
     try:
         d = request.get_json() or {}
-        s = _load_web_settings()
-        s['theme'] = d.get('theme', 'dark')
-        _save_web_settings(s)
+        save_theme(d.get('theme', 'dark'))
         return jsonify({'ok': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
