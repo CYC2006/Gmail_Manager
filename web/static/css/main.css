@@ -1048,12 +1048,14 @@ a      { color: inherit; text-decoration: none; }
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 0 12px;
   color: var(--text-primary);
   font-family: inherit;
   font-size: .88rem;
   outline: none;
   transition: border-color .15s;
+  height: 42px;
+  box-sizing: border-box;
 }
 .sform-input:focus { border-color: var(--accent); }
 
@@ -1062,15 +1064,16 @@ a      { color: inherit; text-decoration: none; }
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 0 12px;
   color: var(--text-primary);
   font-family: inherit;
   font-size: .88rem;
   outline: none;
   cursor: pointer;
   transition: border-color .15s;
-  min-height: 38px;
-  line-height: 1.4;
+  height: 42px;
+  box-sizing: border-box;
+  line-height: 42px;
 }
 .sform-select:focus { border-color: var(--accent); }
 
