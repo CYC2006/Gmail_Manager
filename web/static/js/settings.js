@@ -178,13 +178,14 @@ $('acc-save-btn').addEventListener('click', async () => {
 
 // ─── API Keys tab ─────────────────────────────────────────────────────────────
 
-const API_KEY_MAX = 5;
+const API_KEY_MAX = 10;
 let _apiLoaded = false;
+let _dragSrc = null;
 
 const _PROVIDERS = [
-  { value: 'groq',   label: 'Groq' },
+  { value: 'groq',   label: 'GROQ' },
   { value: 'nvidia', label: 'NVIDIA' },
-  { value: 'kimi',   label: 'Kimi' },
+  { value: 'kimi',   label: 'KIMI' },
 ];
 
 export async function loadApiKeysTab() {
@@ -215,6 +216,40 @@ function addApiKeyRow(key = '', provider = 'groq', status = 'unverified') {
 
   const row = document.createElement('div');
   row.className = 'api-key-row';
+  row.draggable = true;
+
+  // Drag handle
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'material-icons-round api-drag-handle';
+  dragHandle.textContent = 'reorder';
+  dragHandle.title = '拖曳排序';
+
+  row.addEventListener('dragstart', e => {
+    _dragSrc = row;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => row.classList.add('dragging'), 0);
+  });
+  row.addEventListener('dragend', () => {
+    _dragSrc = null;
+    row.classList.remove('dragging');
+    document.querySelectorAll('.api-key-row').forEach(r => r.classList.remove('drag-over'));
+  });
+  row.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (_dragSrc && _dragSrc !== row) row.classList.add('drag-over');
+  });
+  row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+  row.addEventListener('drop', e => {
+    e.preventDefault();
+    row.classList.remove('drag-over');
+    if (!_dragSrc || _dragSrc === row) return;
+    const list = $('api-keys-list');
+    const rows = [...list.querySelectorAll('.api-key-row')];
+    const srcIdx = rows.indexOf(_dragSrc);
+    const dstIdx = rows.indexOf(row);
+    list.insertBefore(_dragSrc, srcIdx < dstIdx ? row.nextSibling : row);
+    _updateApiSaveBtn();
+  });
 
   // Battery / quota icon
   const quotaIcon = document.createElement('span');
@@ -292,6 +327,7 @@ function addApiKeyRow(key = '', provider = 'groq', status = 'unverified') {
     _updateApiSaveBtn();
   });
 
+  row.appendChild(dragHandle);
   row.appendChild(quotaIcon);
   row.appendChild(sel);
   row.appendChild(field);

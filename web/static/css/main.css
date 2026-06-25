@@ -1142,8 +1142,9 @@ a      { color: inherit; text-decoration: none; }
 .api-row-del .material-icons-round { font-size: 18px; }
 
 .api-add-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   background: none;
   border: 1px dashed var(--border);
@@ -1152,11 +1153,29 @@ a      { color: inherit; text-decoration: none; }
   font-size: 1rem;
   padding: 7px 14px;
   cursor: pointer;
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
   transition: border-color .15s, color .15s;
+  width: fit-content;
 }
 .api-add-btn:hover { border-color: var(--accent); color: var(--accent); }
 .api-add-btn:disabled { opacity: .35; cursor: not-allowed; }
+.api-drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 20px;
+  flex-shrink: 0;
+  user-select: none;
+  opacity: .5;
+  transition: opacity .15s;
+}
+.api-drag-handle:hover { opacity: 1; }
+.api-drag-handle:active { cursor: grabbing; }
+.api-key-row.dragging { opacity: .35; }
+.api-key-row.drag-over {
+  outline: 2px dashed var(--accent);
+  border-radius: 8px;
+}
+
 .api-key-field {
   flex: 1;
   background: var(--bg-input);
