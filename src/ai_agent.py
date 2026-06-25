@@ -25,7 +25,7 @@ PROVIDERS = {
     "nvidia": {
         "label": "NVIDIA NIM",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "model": "meta/llama-3.1-8b-instruct",
+        "model": "meta/llama-3.3-70b-instruct",
         "min_interval": 2.0,   # ~30 RPM free tier
     },
     "kimi": {
