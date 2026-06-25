@@ -18,10 +18,9 @@ def init_db():
                 receive_time    TEXT,
                 category        TEXT,
                 summary         TEXT,
-                event_time      TEXT,
-                action_required TEXT,
                 last_seen       TEXT,
-                detail_analysis TEXT
+                detail_analysis TEXT,
+                matched_prefs   TEXT
             )
         ''')
         # add detail_analysis column to existing databases that predate this schema
@@ -34,11 +33,12 @@ def init_db():
             conn.execute('ALTER TABLE analyzed_emails ADD COLUMN matched_prefs TEXT')
         except sqlite3.OperationalError:
             pass  # column already exists
-        # add email_body column to existing databases that predate this schema
-        try:
-            conn.execute('ALTER TABLE analyzed_emails ADD COLUMN email_body TEXT')
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # drop legacy columns that are no longer used
+        for col in ('event_time', 'action_required', 'email_body'):
+            try:
+                conn.execute(f'ALTER TABLE analyzed_emails DROP COLUMN {col}')
+            except sqlite3.OperationalError:
+                pass  # column already removed or never existed
 
         # Dedicated body cache table — independent of AI analysis state.
         # body = '' means "fetched but no content"; NULL row = never fetched.
@@ -48,13 +48,6 @@ def init_db():
                 body       TEXT NOT NULL DEFAULT '',
                 fetched_at TEXT
             )
-        ''')
-        # One-time migration: copy existing analyzed_emails.email_body into email_bodies
-        conn.execute('''
-            INSERT OR IGNORE INTO email_bodies (email_id, body, fetched_at)
-            SELECT email_id, email_body, last_seen
-            FROM analyzed_emails
-            WHERE email_body IS NOT NULL AND email_body != ''
         ''')
 
     # purge entries not seen in any fetch for over 30 days
@@ -81,14 +74,12 @@ def get_cached_result(email_id):
         else:
             matched = None  # never been matched — old cache entry
         return {
-            "email_id":        row["email_id"],
-            "sender":          row["sender"],
-            "time":            row["receive_time"],
-            "category":        row["category"],
-            "summary":         row["summary"],
-            "event_time":      row["event_time"],
-            "action_required": row["action_required"],
-            "matched_prefs":   matched,
+            "email_id":      row["email_id"],
+            "sender":        row["sender"],
+            "time":          row["receive_time"],
+            "category":      row["category"],
+            "summary":       row["summary"],
+            "matched_prefs": matched,
         }
     return None
 
@@ -200,15 +191,13 @@ def save_analysis(email_id, ai_result):
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute('''
             INSERT OR REPLACE INTO analyzed_emails
-            (email_id, sender, receive_time, category, summary, event_time, action_required, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (email_id, sender, receive_time, category, summary, last_seen)
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
             email_id,
             ai_result.get("sender"),
             ai_result.get("time"),
             ai_result.get("category"),
             ai_result.get("summary"),
-            ai_result.get("event_time"),
-            ai_result.get("action_required"),
             now,
         ))

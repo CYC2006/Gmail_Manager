@@ -271,7 +271,6 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                         "sender": sender, "time": receive_time,
                         "category": category,
                         "summary": display_subject if display_subject else subject,
-                        "event_time": None, "action_required": None,
                     })
                     # match against full body (most accurate) and persist
                     matched_prefs = match_preferences(subject, email_body, category)
