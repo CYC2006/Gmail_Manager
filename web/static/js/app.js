@@ -11,7 +11,7 @@ import { switchSettingsTab, loadPreferenceTab, loadAccountTab, loadApiKeysTab, u
 
 // ─── Wire cross-module dependencies ──────────────────────────────────────────
 
-initStream({ buildCard, onCardClick: openModal, onStreamDone: loadTpdStatus });
+initStream({ buildCard, onCardClick: openModal });
 initActions({ syncModalStar });
 
 // ─── View routing ─────────────────────────────────────────────────────────────
@@ -94,18 +94,10 @@ function loadTpdStatus() {
     .then(d => {
       tpdState.exhaustedKeys = new Set(d.exhausted_keys || []);
       tpdState.allExhausted  = !!d.all_exhausted;
-      const banner = $('tpd-banner');
-      if (tpdState.allExhausted) banner.removeAttribute('hidden');
-      else banner.setAttribute('hidden', '');
       updateQuotaDots();
     })
     .catch(() => {});
 }
-
-$('tpd-banner-goto').addEventListener('click', () => {
-  switchView('settings');
-  setTimeout(() => switchSettingsTab('api_keys'), 50);
-});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 

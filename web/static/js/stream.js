@@ -12,14 +12,12 @@ import { startLoading, stopLoading, updateStatsDisplay, showStreamError, hideStr
 // buildCard from email-card.js needs openModal from modal.js, both of which
 // depend on stream helpers, so we inject them at init time instead.
 
-let _buildCard    = null;
-let _onCardClick  = null;
-let _onStreamDone = null;
+let _buildCard   = null;
+let _onCardClick = null;
 
-export function initStream({ buildCard, onCardClick, onStreamDone }) {
-  _buildCard    = buildCard;
-  _onCardClick  = onCardClick;
-  _onStreamDone = onStreamDone ?? null;
+export function initStream({ buildCard, onCardClick }) {
+  _buildCard   = buildCard;
+  _onCardClick = onCardClick;
 }
 
 // ─── Prefetch AI analysis ─────────────────────────────────────────────────────
@@ -255,7 +253,6 @@ export function startSharedStream() {
     syncLoadingBar();
     startBodyPrefetch();
     startAiPrefetch();
-    _onStreamDone?.();
   });
 
   source.addEventListener('error', ev => {
