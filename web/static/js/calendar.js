@@ -1,6 +1,8 @@
 'use strict';
 
 import { state } from './state.js';
+import { openModal } from './modal.js';
+import { showToast } from './ui.js';
 
 const $ = id => document.getElementById(id);
 
@@ -137,6 +139,14 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
     chip.className = 'cal-event-chip';
     chip.style.background = dotColor;
     chip.title = ev.label;
+    if (ev.email_id && !ev.email_id.startsWith('custom_')) {
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', async () => {
+        const res = await fetch(`/api/email/${ev.email_id}/meta`);
+        if (!res.ok) { showToast('The source email no longer exists.'); return; }
+        openModal(await res.json(), 'calendar');
+      });
+    }
 
     const titleEl = document.createElement('span');
     titleEl.className = 'cal-chip-title';

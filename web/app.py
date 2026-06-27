@@ -124,6 +124,32 @@ def stream_emails():
 
 # ── Email detail ─────────────────────────────────────────────────────────────
 
+@app.route('/api/email/<email_id>/meta')
+def api_email_meta(email_id):
+    try:
+        svc = build_action_service()
+        msg = svc.users().messages().get(
+            userId='me', id=email_id, format='metadata',
+            metadataHeaders=['Subject', 'From', 'Date']
+        ).execute()
+        hdrs = {h['name']: h['value'] for h in msg.get('payload', {}).get('headers', [])}
+        label_ids = msg.get('labelIds', [])
+        return jsonify({
+            'id':              email_id,
+            'subject':         hdrs.get('Subject', ''),
+            'display_subject': hdrs.get('Subject', ''),
+            'sender':          hdrs.get('From', ''),
+            'time':            hdrs.get('Date', ''),
+            'is_starred':      'STARRED' in label_ids,
+            'is_unread':       'UNREAD'  in label_ids,
+        })
+    except Exception as e:
+        err = str(e)
+        if '404' in err or 'notFound' in err.lower():
+            return jsonify({'error': 'not found'}), 404
+        return jsonify({'error': err}), 500
+
+
 @app.route('/api/email/<email_id>/body')
 def api_email_body(email_id):
     try:
