@@ -128,11 +128,14 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
   dayNum.textContent = day;
   cell.appendChild(dayNum);
 
+  const CATEGORY_COLORS = { '考試時間': '#e53935', '作業死線': '#f57c00' };
   for (const ev of (byDate[dk] || []).slice(0, 3)) {
-    const c = CAL_COLORS.find(c => c.id === ev.color) || { dot: '#757575' };
+    const dotColor = CATEGORY_COLORS[ev.category]
+      ?? CAL_COLORS.find(c => c.id === ev.color)?.dot
+      ?? '#757575';
     const chip = document.createElement('div');
     chip.className = 'cal-event-chip';
-    chip.style.background = c.dot;
+    chip.style.background = dotColor;
     chip.textContent = ev.label || ev.event_time;
     chip.title = ev.label;
     cell.appendChild(chip);
