@@ -288,11 +288,13 @@ def fetch_and_analyze_emails(service, page_token=None, page_offset=0,
                         events = extract_moodle_events(email_body)
                         added = 0
                         for ev in events:
-                            lbl = ev.get("label", "")
-                            t   = ev.get("time", "")
+                            lbl      = ev.get("label", "")
+                            t        = ev.get("time", "")
+                            end_time = ev.get("end_time", "") or ""
                             if lbl and t and add_event(
                                 email_id, lbl, t,
-                                source="moodle_auto", category=category
+                                source="moodle_auto", category=category,
+                                end_time=end_time,
                             ):
                                 added += 1
                         if added:

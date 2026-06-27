@@ -53,7 +53,8 @@ def event_exists(email_id: str, event_time: str, label: str = '') -> bool:
 
 
 def add_event(email_id: str, label: str, event_time: str,
-              source: str = "manual", category: str = None) -> bool:
+              source: str = "manual", category: str = None,
+              end_time: str = "") -> bool:
     """Add an event to the calendar.
     Returns True if added, False if a duplicate (email_id, event_time) or (label, event_time) exists."""
     if event_exists(email_id, event_time, label):
@@ -61,9 +62,9 @@ def add_event(email_id: str, label: str, event_time: str,
     now = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(CAL_DB) as conn:
         conn.execute(
-            'INSERT INTO calendar_events (email_id, label, event_time, source, category, added_at) '
-            'VALUES (?, ?, ?, ?, ?, ?)',
-            (email_id, label, event_time, source, category, now)
+            'INSERT INTO calendar_events (email_id, label, event_time, source, category, added_at, end_time) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (email_id, label, event_time, source, category, now, end_time or None)
         )
     return True
 
