@@ -129,21 +129,34 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
   cell.appendChild(dayNum);
 
   const CATEGORY_COLORS = { '考試時間': '#e53935', '作業死線': '#f57c00' };
-  for (const ev of (byDate[dk] || []).slice(0, 3)) {
+  for (const ev of (byDate[dk] || []).slice(0, 2)) {
     const dotColor = CATEGORY_COLORS[ev.category]
       ?? CAL_COLORS.find(c => c.id === ev.color)?.dot
       ?? '#757575';
     const chip = document.createElement('div');
     chip.className = 'cal-event-chip';
     chip.style.background = dotColor;
-    chip.textContent = ev.label || ev.event_time;
     chip.title = ev.label;
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'cal-chip-title';
+    titleEl.textContent = ev.label || ev.event_time;
+    chip.appendChild(titleEl);
+
+    const timePart = (ev.event_time || '').substring(11);
+    if (timePart) {
+      const timeEl = document.createElement('span');
+      timeEl.className = 'cal-chip-time';
+      timeEl.textContent = ev.end_time ? `${timePart} - ${ev.end_time}` : timePart;
+      chip.appendChild(timeEl);
+    }
+
     cell.appendChild(chip);
   }
-  if ((byDate[dk] || []).length > 3) {
+  if ((byDate[dk] || []).length > 2) {
     const more = document.createElement('div');
     more.style.cssText = 'font-size:.65rem;color:var(--text-muted);padding:1px 5px';
-    more.textContent = `+${byDate[dk].length - 3} more`;
+    more.textContent = `+${byDate[dk].length - 2} more`;
     cell.appendChild(more);
   }
 
