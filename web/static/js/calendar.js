@@ -131,7 +131,7 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
   cell.appendChild(dayNum);
 
   const CATEGORY_COLORS = { '考試時間': '#e53935', '作業死線': '#f57c00' };
-  for (const ev of (byDate[dk] || []).slice(0, 2)) {
+  if (!otherMonth) for (const ev of (byDate[dk] || []).slice(0, 2)) {
     const dotColor = CATEGORY_COLORS[ev.category]
       ?? CAL_COLORS.find(c => c.id === ev.color)?.dot
       ?? '#757575';
@@ -163,7 +163,7 @@ function calCell(year, month, day, byDate, otherMonth, isToday = false) {
 
     cell.appendChild(chip);
   }
-  if ((byDate[dk] || []).length > 2) {
+  if (!otherMonth && (byDate[dk] || []).length > 2) {
     const more = document.createElement('div');
     more.style.cssText = 'font-size:.65rem;color:var(--text-muted);padding:1px 5px';
     more.textContent = `+${byDate[dk].length - 2} more`;
