@@ -40,13 +40,14 @@ def init_calendar_db():
                 pass  # column already exists
 
 
-def event_exists(email_id: str, event_time: str) -> bool:
-    """Return True if this (email_id, event_time) pair is already stored."""
+def event_exists(email_id: str, event_time: str, label: str = '') -> bool:
+    """Return True if (email_id, event_time) OR (label, event_time) already exists."""
     with sqlite3.connect(CAL_DB) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT 1 FROM calendar_events WHERE email_id = ? AND event_time = ?',
-            (email_id, event_time)
+            'SELECT 1 FROM calendar_events WHERE '
+            '(email_id = ? AND event_time = ?) OR (label = ? AND event_time = ?)',
+            (email_id, event_time, label, event_time)
         )
         return cursor.fetchone() is not None
 
@@ -54,8 +55,8 @@ def event_exists(email_id: str, event_time: str) -> bool:
 def add_event(email_id: str, label: str, event_time: str,
               source: str = "manual", category: str = None) -> bool:
     """Add an event to the calendar.
-    Returns True if added, False if the same (email_id, event_time) already exists."""
-    if event_exists(email_id, event_time):
+    Returns True if added, False if a duplicate (email_id, event_time) or (label, event_time) exists."""
+    if event_exists(email_id, event_time, label):
         return False
     now = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(CAL_DB) as conn:
